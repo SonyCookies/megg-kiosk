@@ -19,6 +19,9 @@
     "docker:update": "powershell -ExecutionPolicy Bypass -File dev-update.ps1"
   },
   "dependencies": {
+    "@types/node": "^20",
+    "@types/react": "^19.1.13",
+    "@types/react-dom": "^19",
     "electron": "^35.2.0",
     "firebase": "^11.6.0",
     "framer-motion": "^12.7.4",
@@ -33,9 +36,6 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
-    "@types/node": "^20",
-    "@types/react": "^19.1.13",
-    "@types/react-dom": "^19",
     "autoprefixer": "^10.4.16",
     "concurrently": "^9.1.2",
     "cross-env": "^7.0.3",
