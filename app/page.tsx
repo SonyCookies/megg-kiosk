@@ -579,7 +579,7 @@ export default function Home() {
             </div>
 
         {/* Tab Navigation - Professional design */}
-        <div className="bg-slate-700/50 backdrop-blur-sm border-b border-slate-600/50 px-3 h-10">
+        <div className="bg-slate-700/50 backdrop-blur-sm border-b border-slate-600/50 px-3 h-12">
           <div className="flex space-x-1 h-full">
             {([
               { id: 'camera' as const, label: 'Camera', icon: Camera },
@@ -604,7 +604,7 @@ export default function Home() {
       </div>
 
       {/* Main Content - Fixed height for 5" landscape display */}
-      <div className="h-[calc(100vh-5rem)] overflow-hidden mt-8">
+      <div className="h-[calc(100vh-5.5rem)] overflow-hidden mt-10">
 
         {activeTab === 'camera' && (
           <div className="h-full flex flex-col p-3">
