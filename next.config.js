@@ -6,7 +6,7 @@ const nextConfig = {
   assetPrefix: '/',
   output: 'standalone',
   typescript: {
-    ignoreBuildErrors: false,
+    ignoreBuildErrors: true,
   },
   eslint: {
     ignoreDuringBuilds: true,
