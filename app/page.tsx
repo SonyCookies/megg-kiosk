@@ -1135,8 +1135,8 @@ export default function Home() {
 
               {/* Account ID Display and Number Pad */}
               <div className="grid grid-cols-2 gap-8 h-full">
-                {/* Left Column - PIN Display */}
-                <div className="flex flex-col justify-center items-center">
+                {/* Left Column - PIN Display and Action Buttons */}
+                <div className="flex flex-col justify-center items-center space-y-6">
                   <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 border-2 border-blue-500/30 rounded-2xl px-8 py-12 shadow-2xl">
                     <div className="text-center">
                       <div className="text-white text-3xl font-mono mb-4">MEGG-</div>
@@ -1157,8 +1157,29 @@ export default function Home() {
                     </div>
                   </div>
                   
+                  {/* Action Buttons */}
+                  <div className="flex gap-6">
+                    <button
+                      onClick={() => setShowPinModal(false)}
+                      className="bg-red-600 hover:bg-red-700 text-white px-10 py-5 rounded-xl text-xl font-bold transition-all duration-200 flex items-center justify-center gap-3 shadow-lg hover:shadow-xl"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handlePinSubmit}
+                      disabled={pinInput.length !== 6}
+                      className={`px-10 py-5 rounded-xl text-xl font-bold transition-all duration-200 flex items-center justify-center gap-3 shadow-lg hover:shadow-xl ${
+                        pinInput.length === 6
+                          ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                          : 'bg-gray-500 cursor-not-allowed text-gray-300'
+                      }`}
+                    >
+                      ✓ Bind
+                    </button>
+                  </div>
+                  
                   {pinError && (
-                    <p className="text-red-400 text-sm text-center mt-4">{pinError}</p>
+                    <p className="text-red-400 text-sm text-center">{pinError}</p>
                   )}
                 </div>
 
@@ -1180,10 +1201,11 @@ export default function Home() {
                     </div>
                     <div className="grid grid-cols-3 gap-3">
                       <button
-                        onClick={() => setShowPinModal(false)}
-                        className="w-30 h-20 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold rounded-xl transition-all duration-200 flex items-center justify-center shadow-lg hover:shadow-xl"
+                        onClick={() => handlePinChange(pinInput + '0')}
+                        disabled={pinInput.length >= 6}
+                        className="w-30 h-20 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:cursor-not-allowed text-white text-2xl font-semibold rounded-xl transition-all duration-200 flex items-center justify-center shadow-lg hover:shadow-xl focus:ring-2 focus:ring-blue-500 focus:outline-none"
                       >
-                        Cancel
+                        0
                       </button>
                       <button
                         onClick={() => handlePinChange(pinInput.slice(0, -1))}
@@ -1192,17 +1214,7 @@ export default function Home() {
                       >
                         ⌫
                       </button>
-                      <button
-                        onClick={handlePinSubmit}
-                        disabled={pinInput.length !== 6}
-                        className={`w-30 h-20 rounded-xl font-semibold transition-all duration-200 flex items-center justify-center shadow-lg hover:shadow-xl ${
-                          pinInput.length === 6
-                            ? 'bg-blue-600 hover:bg-blue-700 text-white'
-                            : 'bg-gray-500 cursor-not-allowed text-gray-300'
-                        }`}
-                      >
-                        ✓
-                      </button>
+                      <div className="w-30 h-20"></div>
                     </div>
                   </div>
                 </div>
