@@ -1,6 +1,4 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* Tailwind CSS will be loaded via CDN */
 
 :root {
   --background: #ffffff;
