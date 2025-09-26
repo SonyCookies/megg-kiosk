@@ -4,7 +4,7 @@
 import React, { useEffect, useState, useRef, useCallback } from "react"
 import Image from "next/image"
 import { 
-  Activity,
+  Activity, 
   Settings, 
   Camera, 
   Clock,
@@ -53,6 +53,7 @@ export default function Home() {
   const [cameraError, setCameraError] = useState("")
   const [showPreview, setShowPreview] = useState(false)
   const [isMirrorMode, setIsMirrorMode] = useState(true)
+  const [isFullscreen, setIsFullscreen] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   
   // Roboflow integration states
@@ -178,6 +179,11 @@ export default function Home() {
 
   const togglePreview = () => {
     setShowPreview(!showPreview)
+  }
+
+  const toggleFullscreen = () => {
+    setIsFullscreen(!isFullscreen)
+    console.log('Toggling UI fullscreen:', !isFullscreen)
   }
 
   // Account functions
@@ -521,6 +527,16 @@ export default function Home() {
     }
   }, [activeTab, isCameraOn, startCamera])
 
+  // No need for browser fullscreen listeners since we're using UI fullscreen
+
+  // Ensure video plays when entering fullscreen
+  useEffect(() => {
+    if (isFullscreen && videoRef.current && isCameraOn) {
+      // Force video to play and ensure it's visible
+      videoRef.current.play().catch(console.error)
+    }
+  }, [isFullscreen, isCameraOn])
+
   // Check video stream state when preview becomes visible
   useEffect(() => {
     if (showPreview && isCameraOn && videoRef.current) {
@@ -539,32 +555,32 @@ export default function Home() {
   return (
     <div className="w-screen h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-800 overflow-hidden">
       {/* Header - Fixed height for 5" landscape display */}
-      <div className={`h-12 transition-all duration-1000 ${
+      <div className={`transition-all duration-1000 ${
           isLoaded ? "opacity-100 translate-y-0" : "opacity-0 translate-y-10"
-      }`}>
+      } ${isFullscreen ? 'h-8' : 'h-12'}`}>
         {/* Top Navigation Bar - Professional design */}
-        <div className="bg-slate-800/90 backdrop-blur-md border-b border-blue-500/30 px-3 py-2 h-12">
+        <div className={`bg-slate-800/90 backdrop-blur-md border-b border-blue-500/30 px-3 ${isFullscreen ? 'py-1 h-8' : 'py-2 h-12'}`}>
           <div className="flex items-center justify-between">
             {/* Logo and Title - Professional */}
             <div className="flex items-center gap-3">
               <Image
                 src="/Logos/logowhite.png"
                 alt="MEGG Logo"
-                width={32}
-                height={32}
+                width={isFullscreen ? 20 : 32}
+                height={isFullscreen ? 20 : 32}
                 className="object-contain"
               />
               <div>
-                <h1 className="text-lg font-bold text-white tracking-wide">MEGG</h1>
+                <h1 className={`font-bold text-white tracking-wide ${isFullscreen ? 'text-sm' : 'text-lg'}`}>MEGG</h1>
               </div>
             </div>
 
             {/* Minimal Status Indicators */}
-            <div className="flex items-center gap-3">
+            <div className={`flex items-center ${isFullscreen ? 'gap-2' : 'gap-3'}`}>
               {/* Account ID Status */}
               <div className="flex items-center gap-1.5">
                 <div className={`w-2 h-2 rounded-full ${currentAccountId ? "bg-blue-400" : "bg-red-400"}`} />
-                <span className="text-xs font-medium text-slate-300">
+                <span className={`font-medium text-slate-300 ${isFullscreen ? 'text-xs' : 'text-xs'}`}>
                   {currentAccountId ? currentAccountId : "NO ACCOUNT"}
                 </span>
               </div>
@@ -572,14 +588,14 @@ export default function Home() {
               {/* Network Status */}
               <div className="flex items-center gap-1.5">
                 <div className={`w-2 h-2 rounded-full ${isOnline ? "bg-green-400" : "bg-red-400"}`} />
-                <span className="text-xs font-medium text-slate-300">NET</span>
+                <span className={`font-medium text-slate-300 ${isFullscreen ? 'text-xs' : 'text-xs'}`}>NET</span>
               </div>
             </div>
               </div>
             </div>
 
         {/* Tab Navigation - Professional design */}
-        <div className="bg-slate-700/50 backdrop-blur-sm border-b border-slate-600/50 px-3 h-16">
+        <div className={`bg-slate-700/50 backdrop-blur-sm border-b border-slate-600/50 px-3 h-16 ${isFullscreen ? 'hidden' : ''}`}>
           <div className="flex space-x-1 h-full">
             {([
               { id: 'camera' as const, label: 'Camera', icon: Camera },
@@ -603,43 +619,88 @@ export default function Home() {
         </div>
       </div>
 
+
       {/* Main Content - Fixed height for 5" landscape display */}
-      <div className="h-[calc(100vh-5.5rem)] overflow-hidden mt-16">
+      <div className={`h-[calc(100vh-5.5rem)] overflow-hidden ${isFullscreen ? 'mt-0 h-[calc(100vh-2rem)]' : 'mt-16'}`}>
 
         {activeTab === 'camera' && (
-          <div className="h-full flex flex-col p-3">
-            <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl p-4 border border-slate-600/30 shadow-lg flex-1 w-full">
-              <div className="bg-slate-900 rounded-lg aspect-video border border-slate-700/50 h-64 sm:h-80 lg:h-96 relative overflow-hidden mb-4 w-full">
-                {/* Floating preview control button */}
-                <button
-                  onClick={captureImage}
-                  disabled={isCameraLoading || isCapturing || !showPreview || !isCameraOn}
-                  className={`absolute top-4 right-4 z-10 p-3 rounded-full shadow-lg transition-all duration-200 ${
-                    isCapturing || !showPreview || !isCameraOn
-                      ? 'bg-gray-500 cursor-not-allowed' 
-                      : 'bg-green-600 hover:bg-green-700 text-white'
-                  }`}
-                >
-                  {isCapturing ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : (
-                    <CameraIcon className="w-5 h-5" />
-                  )}
-                </button>
+          <div className={`h-full flex flex-col ${isFullscreen ? 'p-1' : 'p-3'}`}>
+            <div className={`bg-slate-800/50 backdrop-blur-sm rounded-xl border border-slate-600/30 shadow-lg flex-1 w-full ${isFullscreen ? 'p-0 rounded-none border-0' : 'p-4'}`}>
+              <div className={`bg-slate-900 rounded-lg border border-slate-700/50 relative overflow-hidden w-full ${isFullscreen ? 'h-full rounded-none border-0' : 'aspect-video h-64 sm:h-80 lg:h-96 mb-4'}`}>
+                {/* Video - shows in both normal and fullscreen modes */}
+                {showPreview && isCameraOn && (
+                  <video
+                    ref={videoRef}
+                    className="w-full h-full object-cover"
+                    autoPlay
+                    muted
+                    playsInline
+                    style={{ 
+                      transform: isMirrorMode ? "scaleX(-1)" : "none"
+                    }}
+                  />
+                )}
+                
+                {/* Video placeholder when not showing preview */}
+                {(!showPreview || !isCameraOn) && (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <div className="text-center">
+                      <Camera className="h-16 w-16 text-slate-500 mx-auto mb-4" />
+                      <p className="text-slate-400 text-lg">Camera Feed</p>
+                      <p className="text-slate-500 text-sm mt-2">
+                        {!isCameraOn ? 'Camera not started' : 'Preview hidden'}
+                      </p>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Control buttons */}
+                <div className="absolute top-4 right-4 z-10 flex gap-3">
+                  {/* Fullscreen/Exit Button */}
+                  <button
+                    onClick={toggleFullscreen}
+                    className={`px-6 py-4 rounded-xl text-lg font-semibold transition-all duration-200 flex items-center justify-center gap-2 shadow-lg hover:shadow-xl ${
+                      isFullscreen 
+                        ? 'bg-red-600 hover:bg-red-700 text-white' 
+                        : 'bg-blue-600 hover:bg-blue-700 text-white'
+                    }`}
+                  >
+                    {isFullscreen ? (
+                      <>
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                        Exit Fullscreen
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                        </svg>
+                        Fullscreen
+                      </>
+                    )}
+                  </button>
+                  
+                  {/* Capture Button */}
+                  <button
+                    onClick={captureImage}
+                    disabled={isCameraLoading || isCapturing || !showPreview || !isCameraOn}
+                    className={`px-6 py-4 rounded-xl text-lg font-semibold transition-all duration-200 flex items-center justify-center gap-2 shadow-lg hover:shadow-xl ${
+                      isCapturing || !showPreview || !isCameraOn
+                        ? 'bg-gray-500 cursor-not-allowed' 
+                        : 'bg-green-600 hover:bg-green-700 text-white'
+                    }`}
+                  >
+                    {isCapturing ? (
+                      <Loader2 className="w-6 h-6 animate-spin" />
+                    ) : (
+                      <CameraIcon className="w-6 h-6" />
+                    )}
+                    Capture
+                  </button>
+                </div>
 
-                {/* Always render video element but hide it when preview is off */}
-                <video
-                  ref={videoRef}
-                  className={`w-full h-full object-cover ${showPreview && isCameraOn ? 'block' : 'hidden'}`}
-                  autoPlay
-                  muted
-                  playsInline
-                  style={{ 
-                    width: '100%', 
-                    height: '100%',
-                    transform: isMirrorMode ? "scaleX(-1)" : "none"
-                  }}
-                />
                 
                 {/* Minimalist transparent floating result container */}
                 {(captureResult || captureError) && (
@@ -689,36 +750,13 @@ export default function Home() {
                           <p className="text-white/80 text-xs">{captureError}</p>
                         </div>
                       ) : null}
-                </div>
-              </div>
-                )}
-                
-                {/* Show placeholder when preview is off or camera is not ready */}
-                {!showPreview && (
-                  <div className="flex items-center justify-center h-full">
-                <div className="text-center">
-                  <Camera className="h-16 w-16 text-slate-500 mx-auto mb-4" />
-                  <p className="text-slate-400 text-lg">Camera Feed</p>
-                      <p className="text-slate-500 text-sm mt-2">Preview Hidden</p>
                     </div>
                   </div>
                 )}
                 
-                {/* Show loading when camera is starting */}
-                {showPreview && !isCameraOn && (
-                  <div className="flex items-center justify-center h-full">
-                    <div className="text-center">
-                      <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                      <p className="text-slate-400 text-lg">Camera Feed</p>
-                      <p className="text-slate-500 text-sm mt-2">
-                        {cameraError || (isCameraLoading ? 'Starting camera...' : 'Camera starting...')}
-                      </p>
-                    </div>
-                  </div>
-                )}
               </div>
               
-            </div>
+                  </div>
           </div>
         )}
 
@@ -736,7 +774,7 @@ export default function Home() {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <h3 className="text-base font-semibold text-white">Egg Size Ranges (grams)</h3>
-                    <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2">
                       {isLoadingConfig && (
                         <Loader2 className="h-4 w-4 text-blue-400 animate-spin" />
                       )}
@@ -747,9 +785,9 @@ export default function Home() {
                       }`}>
                         {configSource === 'user' ? 'Custom' : 
                          configSource === 'global' ? 'Default' : 'Local'}
-                      </div>
-                    </div>
                   </div>
+                </div>
+              </div>
                   
                   <div className="grid grid-cols-3 gap-3">
                     {/* Small Eggs */}
@@ -757,49 +795,49 @@ export default function Home() {
                       <div className="flex items-center gap-2">
                         <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
                           <span className="text-white font-bold text-xs">S</span>
-                        </div>
+            </div>
                         <div>
                           <span className="text-slate-300 text-sm font-medium">Small</span>
                           <p className="text-slate-400 text-xs">{eggRanges.small.min.toFixed(2)}-{eggRanges.small.max.toFixed(2)}g</p>
-                        </div>
-                      </div>
+          </div>
+                  </div>
                       <button
                         onClick={() => handleRangeEdit('small')}
                         className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-4 rounded-lg text-lg font-medium transition-all duration-200"
                       >
                         Edit
                       </button>
-                    </div>
+                </div>
 
                     {/* Medium Eggs */}
                     <div className="flex items-center justify-between p-2 bg-slate-700/30 rounded border border-slate-600/30">
                       <div className="flex items-center gap-2">
                         <div className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center">
                           <span className="text-white font-bold text-xs">M</span>
-                        </div>
+                  </div>
                         <div>
                           <span className="text-slate-300 text-sm font-medium">Medium</span>
                           <p className="text-slate-400 text-xs">{eggRanges.medium.min.toFixed(2)}-{eggRanges.medium.max.toFixed(2)}g</p>
-                        </div>
-                      </div>
+                </div>
+                </div>
                       <button
                         onClick={() => handleRangeEdit('medium')}
                         className="bg-green-600 hover:bg-green-700 text-white px-6 py-4 rounded-lg text-lg font-medium transition-all duration-200"
                       >
                         Edit
                       </button>
-                    </div>
+              </div>
 
                     {/* Large Eggs */}
                     <div className="flex items-center justify-between p-2 bg-slate-700/30 rounded border border-slate-600/30">
                       <div className="flex items-center gap-2">
                         <div className="w-6 h-6 bg-orange-500 rounded-full flex items-center justify-center">
                           <span className="text-white font-bold text-xs">L</span>
-                        </div>
+                </div>
                         <div>
                           <span className="text-slate-300 text-sm font-medium">Large</span>
                           <p className="text-slate-400 text-xs">{eggRanges.large.min.toFixed(2)}-{eggRanges.large.max.toFixed(2)}g</p>
-                        </div>
+              </div>
                       </div>
                       <button
                         onClick={() => handleRangeEdit('large')}
@@ -807,9 +845,9 @@ export default function Home() {
                       >
                         Edit
                       </button>
-                    </div>
-                  </div>
-                  
+            </div>
+          </div>
+
                   {/* Gap Warning */}
                   {showGapWarning && rangeValidation && rangeValidation.hasGaps && (
                     <div className="mt-3 p-3 bg-yellow-600/20 border border-yellow-500/30 rounded-lg">
@@ -821,21 +859,21 @@ export default function Home() {
                             {rangeValidation.gaps.map((gap, index) => (
                               <div key={index}>
                                 Gap between {gap.between}: {gap.from.toFixed(2)}g to {gap.to.toFixed(2)}g
-                              </div>
+                  </div>
                             ))}
-                          </div>
+                  </div>
                           <div className="text-xs text-yellow-400 mt-2">
                             Consider adjusting ranges to eliminate gaps for complete coverage.
-                          </div>
-                        </div>
+                  </div>
+                  </div>
                         <button
                           onClick={() => setShowGapWarning(false)}
                           className="text-yellow-400 hover:text-yellow-300 ml-auto"
                         >
                           <XCircle className="h-4 w-4" />
                         </button>
-                      </div>
-                    </div>
+                </div>
+              </div>
                   )}
 
                   {/* Reset to Defaults Button */}
@@ -880,10 +918,10 @@ export default function Home() {
                       ) : userData ? (
                         <div className="flex items-center justify-between">
                           {/* Left side - User Name */}
-                          <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3">
                             <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
                               <User className="h-6 w-6 text-white" />
-                            </div>
+                </div>
                             <div>
                               <h4 className="text-white font-semibold text-lg">
                                 {userData.fullname || userData.username || 'User'}
@@ -894,28 +932,28 @@ export default function Home() {
                               <p className="text-slate-500 text-xs">
                                 {userData.provider === 'google' ? 'Google Account' : 'Email Account'}
                               </p>
-                            </div>
-                          </div>
-                          
+              </div>
+            </div>
+
                           {/* Right side - Account ID */}
                           <div className="text-right">
                             <div className="text-slate-400 text-sm mb-2">Account ID</div>
                             <div className="text-2xl font-mono font-bold text-blue-400">{currentAccountId}</div>
                             <div className="text-slate-500 text-xs mt-1">
                               {userData.verified ? '✓ Verified' : '⚠ Unverified'}
-                            </div>
-                          </div>
-                        </div>
+                </div>
+                </div>
+                </div>
                       ) : (
                         <div className="text-center text-slate-400">
                           <AlertCircle className="h-8 w-8 mx-auto mb-2 text-yellow-400" />
                           <p>User data not found</p>
                           <p className="text-sm">Account ID exists but user data is missing</p>
-                        </div>
+              </div>
                       )}
-                    </div>
-                  </div>
-                )}
+            </div>
+          </div>
+        )}
 
                 {/* Input ID Section */}
                 <div className="space-y-3">
@@ -934,7 +972,7 @@ export default function Home() {
                         >
                           <User className="h-5 w-5" />
                           {currentAccountId ? 'Change Account ID' : 'Enter Account ID'}
-                        </button>
+                      </button>
                         {currentAccountId && (
                           <button
                             onClick={clearAccountId}
@@ -942,14 +980,14 @@ export default function Home() {
                           >
                             <XCircle className="h-5 w-5" />
                             Clear
-                          </button>
+                      </button>
                         )}
                       </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
             </div>
+            </div>
+            </div>
+            </div>
+          </div>
           </div>
         )}
         </div>
@@ -1038,7 +1076,7 @@ export default function Home() {
                           <p className="text-white font-medium">
                             {userData.createdAt ? new Date(userData.createdAt).toLocaleDateString() : 'Unknown'}
                           </p>
-                        </div>
+              </div>
                         <div>
                           <span className="text-slate-400">Last Login:</span>
                           <p className="text-white font-medium">
@@ -1108,7 +1146,8 @@ export default function Home() {
         )}
 
         {/* Add keyframes for animations */}
-        <style jsx global>{`
+        <style dangerouslySetInnerHTML={{
+          __html: `
           @keyframes ping-slow {
             0% {
               transform: scale(1);
@@ -1123,7 +1162,8 @@ export default function Home() {
               opacity: 0.8;
             }
           }
-        `}</style>
+          `
+        }} />
         {/* Account ID Input Modal */}
         {showPinModal && (
           <div 
