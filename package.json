@@ -1,0 +1,48 @@
+{
+  "name": "kiosk-next-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./electron/main.js",
+  "scripts": {
+    "dev": "next dev",
+    "electron": "electron .",
+    "start": "next start",
+    "build": "next build",
+    "electron-dev": "electron .",
+    "start-electron": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && npm run electron\"",
+    "docker:build": "docker build -t kiosk-next-frontend .",
+    "docker:run": "docker run -p 3000:3000 --privileged kiosk-next-frontend",
+    "docker:compose": "docker-compose up --build",
+    "docker:compose:detached": "docker-compose up --build -d",
+    "docker:stop": "docker-compose down",
+    "docker:cleanup": "powershell -ExecutionPolicy Bypass -File cleanup-docker.ps1",
+    "docker:update": "powershell -ExecutionPolicy Bypass -File dev-update.ps1"
+  },
+  "dependencies": {
+    "firebase": "^11.6.0",
+    "framer-motion": "^12.7.4",
+    "idb": "^8.0.2",
+    "jose": "^6.0.10",
+    "lucide-react": "^0.488.0",
+    "next": "15.3.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-qr-code": "^2.0.15",
+    "electron": "^35.2.0"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "electron-builder": "^26.0.12",
+    "eslint": "^9",
+    "eslint-config-next": "15.3.0",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "wait-on": "^8.0.3"
+  }
+}

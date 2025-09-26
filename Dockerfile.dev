@@ -1,0 +1,49 @@
+# Development Dockerfile for Kiosk Frontend
+FROM node:18-alpine
+
+# Install system dependencies
+RUN apk add --no-cache \
+    chromium \
+    nss \
+    freetype \
+    freetype-dev \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont \
+    xvfb \
+    dbus
+
+# Set working directory
+WORKDIR /app
+
+# Copy package files
+COPY package.json package-lock.json* ./
+
+# Install all dependencies (including dev dependencies)
+RUN npm ci
+
+# Set environment variables
+ENV NODE_ENV=development
+ENV ELECTRON_DISABLE_SECURITY_WARNINGS=true
+ENV DISPLAY=:99
+ENV CHROME_BIN=/usr/bin/chromium-browser
+
+# Create non-root user
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
+
+# Copy source code (will be overridden by volume mount)
+COPY . .
+
+# Create .next directory with proper permissions
+RUN mkdir -p /app/.next && chown -R nextjs:nodejs /app/.next
+
+# Set permissions only for necessary directories (not node_modules)
+RUN chown -R nextjs:nodejs /app/app /app/public /app/.next /app/package*.json
+USER nextjs
+
+# Expose port
+EXPOSE 3000
+
+# Start development server
+CMD ["npm", "run", "dev"]
