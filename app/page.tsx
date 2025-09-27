@@ -1,39 +1,42 @@
 // app/page.tsx
 "use client"
 
-import React, { useEffect, useState, useRef, useCallback } from "react"
+import React, { useEffect, useState, useCallback } from "react"
 import Image from "next/image"
 import { 
-  Activity, 
-  Settings, 
   Camera, 
-  Clock,
-  Play,
-  Pause,
-  CameraIcon,
-  Loader2,
-  XCircle,
   User,
-  AlertCircle,
   Package,
+  Settings,
   Target
 } from "lucide-react"
 
 import { useInternetConnection, useWebSocket } from "./contexts/NetworkContext"
 import { db } from './libs/firebaseConfig'
-import { collection, query, where, getDocs, doc, getDoc, updateDoc } from 'firebase/firestore'
+import { collection, query, where, getDocs } from 'firebase/firestore'
+import iotService from './services/iotService'
 import { 
   getConfigurationWithFallback, 
   saveConfigurationWithFallback, 
   deleteUserConfiguration,
   EggSizeRanges,
   validateRanges,
-  getSuggestedNextRange,
   getNextRangeType,
   RangeValidation
 } from './utils/configurationService'
-import WiFiButton from "./components/wifi-button"
-import { roboflowService } from "./services/roboflowService"
+
+// Import tab components
+import CameraTab from "./components/CameraTab"
+import BatchTab from "./components/BatchTab"
+import ConfigurationTab from "./components/ConfigurationTab"
+import CalibrationTab from "./components/CalibrationTab"
+import AccountTab from "./components/AccountTab"
+
+// Import modal components
+import PinModal from "./components/PinModal"
+import RangeModal from "./components/RangeModal"
+import BatchModal from "./components/BatchModal"
+import Toaster from "./components/Toaster"
 
 export default function Home() {
   const [isLoaded, setIsLoaded] = useState(false)
@@ -49,19 +52,8 @@ export default function Home() {
     largeEggs: 0
   })
 
-  // Camera state
-  const [isCameraOn, setIsCameraOn] = useState(false)
-  const [isCameraLoading, setIsCameraLoading] = useState(false)
-  const [cameraError, setCameraError] = useState("")
-  const [showPreview, setShowPreview] = useState(false)
-  const [isMirrorMode, setIsMirrorMode] = useState(true)
+  // UI state
   const [isFullscreen, setIsFullscreen] = useState(false)
-  const videoRef = useRef<HTMLVideoElement>(null)
-  
-  // Roboflow integration states
-  const [isCapturing, setIsCapturing] = useState(false)
-  const [captureResult, setCaptureResult] = useState<any>(null)
-  const [captureError, setCaptureError] = useState<string | null>(null)
 
   // Account states
   const [showPinModal, setShowPinModal] = useState(false)
@@ -108,6 +100,8 @@ export default function Home() {
   const [existingBatch, setExistingBatch] = useState<any>(null)
   const [isCheckingBatch, setIsCheckingBatch] = useState(false)
   const [activeStatsView, setActiveStatsView] = useState<'overview' | 'size' | 'quality'>('overview')
+
+  // Calibration states
   const [isCalibratingUno, setIsCalibratingUno] = useState(false)
   const [isCalibratingHX711, setIsCalibratingHX711] = useState(false)
   const [isCalibratingNema23, setIsCalibratingNema23] = useState(false)
@@ -119,18 +113,13 @@ export default function Home() {
     message: string
   }>({ show: false, type: 'info', message: '' })
 
-  // Motor test progress modal
-  const [showTestModal, setShowTestModal] = useState(false)
-  const [testProgress, setTestProgress] = useState(0)
-  const [currentTest, setCurrentTest] = useState('')
-  const [testStatus, setTestStatus] = useState('')
+  // IoT connection state
+  const [iotConnected, setIotConnected] = useState(false)
 
   // Network status
   const isOnline = useInternetConnection()
   const { readyState } = useWebSocket()
   const isWebSocketConnected = readyState === WebSocket.OPEN
-
-
 
   // Entrance fade-in animation
   useEffect(() => {
@@ -155,76 +144,67 @@ export default function Home() {
     }
   }, [])
 
-  // Camera functions
-  const startCamera = useCallback(async () => {
-    try {
-      console.log('Starting camera...')
-      setIsCameraLoading(true)
-      setCameraError("")
-      
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          facingMode: 'environment'
-        },
-        audio: false
-      })
-
-      console.log('Camera stream obtained:', {
-        active: stream.active,
-        videoTracks: stream.getVideoTracks().length,
-        videoTrack: stream.getVideoTracks()[0]?.getSettings()
-      })
-
-      if (videoRef.current) {
-        console.log('Setting video srcObject...')
-        videoRef.current.srcObject = stream
+  // IoT connection management
+  useEffect(() => {
+    const connectIoT = async () => {
+      try {
+        console.log('🔌 Attempting to connect to IoT backend...')
+        await iotService.connect()
+        setIotConnected(true)
+        console.log('✅ IoT Backend connection established')
         
-        videoRef.current.onloadedmetadata = () => {
-          console.log('Video metadata loaded, attempting to play...')
-          videoRef.current?.play().then(() => {
-            console.log('Video playing successfully')
-            setIsCameraOn(true)
-            setIsCameraLoading(false)
-          }).catch((playError) => {
-            console.error('Error playing video:', playError)
-            setCameraError(`Error playing video: ${playError.message}`)
-            setIsCameraLoading(false)
-          })
-        }
-        
-        videoRef.current.onerror = (error) => {
-          console.error('Video element error:', error)
-          setCameraError("Video element error occurred")
-          setIsCameraLoading(false)
-        }
-      } else {
-        console.error('Video element not available')
-        setCameraError("Video element not available")
-        setIsCameraLoading(false)
+        // Get initial system status after a delay to ensure connection is stable
+        setTimeout(async () => {
+          try {
+            const status = await iotService.getSystemStatus()
+            console.log('📊 Initial system status:', status)
+          } catch (error) {
+            console.error('❌ Failed to get initial system status:', error)
+          }
+        }, 2000)
+      } catch (error) {
+        console.error('❌ Failed to connect to IoT backend:', error)
+        setIotConnected(false)
       }
-    } catch (error) {
-      console.error('Camera start error:', error)
-      setCameraError(`Camera failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
-      setIsCameraLoading(false)
     }
-  }, [isCameraOn, isCameraLoading])
 
-  const stopCamera = () => {
-    if (videoRef.current && videoRef.current.srcObject) {
-      const stream = videoRef.current.srcObject as MediaStream
-      const tracks = stream.getTracks()
-      tracks.forEach(track => track.stop())
-      videoRef.current.srcObject = null
+    // Event handlers
+    const handleConnected = () => {
+      console.log('✅ IoT Backend connected')
+      setIotConnected(true)
     }
-    setIsCameraOn(false)
-    setCameraError("")
-  }
 
-  const togglePreview = () => {
-    setShowPreview(!showPreview)
-  }
+    const handleDisconnected = () => {
+      console.log('❌ IoT Backend disconnected')
+      setIotConnected(false)
+    }
+
+    const handleCalibrationResult = (data: any) => {
+      console.log(`Calibration ${data.success ? 'completed' : 'failed'} for ${data.component}:`, data.message || data.error)
+      
+      if (data.status === 'completed' || data.status === 'failed') {
+        const toasterType = data.success ? 'success' : 'error'
+        showToaster(toasterType, data.message || `${data.component} calibration ${data.success ? 'completed' : 'failed'}`)
+        resetCalibrationState(data.component)
+      }
+    }
+
+    // Connect to IoT backend
+    connectIoT()
+
+    // Set up event listeners
+    iotService.on('connected', handleConnected)
+    iotService.on('disconnected', handleDisconnected)
+    iotService.on('calibrationResult', handleCalibrationResult)
+
+    return () => {
+      // Cleanup event listeners
+      iotService.off('connected', handleConnected)
+      iotService.off('disconnected', handleDisconnected)
+      iotService.off('calibrationResult', handleCalibrationResult)
+      iotService.disconnect()
+    }
+  }, [])
 
   const toggleFullscreen = () => {
     setIsFullscreen(!isFullscreen)
@@ -656,100 +636,53 @@ export default function Home() {
     }, 4000)
   }
 
+  const resetCalibrationState = (component: string) => {
+    switch (component) {
+      case 'UNO':
+        setIsCalibratingUno(false)
+        break
+      case 'HX711':
+        setIsCalibratingHX711(false)
+        break
+      case 'NEMA23':
+        setIsCalibratingNema23(false)
+        break
+      case 'SG90':
+        setIsCalibratingSG90(false)
+        break
+      case 'MG996R':
+        setIsCalibratingMG996R(false)
+        break
+      default:
+        console.log('Unknown component:', component)
+    }
+  }
+
+  // Calibration functions - Now handled by IoT backend simulation
   const handleUnoCalibration = async () => {
     setIsCalibratingUno(true)
-    
-    try {
-      await new Promise(resolve => setTimeout(resolve, 3000))
-      const isSuccess = Math.random() > 0.1
-      
-      if (isSuccess) {
-        showToaster('success', 'UNO calibration completed successfully!')
-      } else {
-        showToaster('error', 'UNO calibration failed. Please check connections.')
-      }
-    } catch (error) {
-      console.error('UNO calibration error:', error)
-      showToaster('error', 'UNO calibration error occurred.')
-    } finally {
-      setIsCalibratingUno(false)
-    }
+    // The IoT backend will handle the simulation and toaster notifications
+    // The loading state will be reset when calibration completes
   }
 
   const handleHX711Calibration = async () => {
     setIsCalibratingHX711(true)
-    
-    try {
-      await new Promise(resolve => setTimeout(resolve, 2500))
-      const isSuccess = Math.random() > 0.15
-      
-      if (isSuccess) {
-        showToaster('success', 'HX711 load cell calibration completed successfully!')
-      } else {
-        showToaster('error', 'HX711 calibration failed. Check load cell connections.')
-      }
-    } catch (error) {
-      showToaster('error', 'HX711 calibration error occurred.')
-    } finally {
-      setIsCalibratingHX711(false)
-    }
+    // The IoT backend will handle the simulation and toaster notifications
   }
 
   const handleNema23Calibration = async () => {
     setIsCalibratingNema23(true)
-    
-    try {
-      await new Promise(resolve => setTimeout(resolve, 4000))
-      const isSuccess = Math.random() > 0.08
-      
-      if (isSuccess) {
-        showToaster('success', 'NEMA 23 stepper motor calibration completed successfully!')
-      } else {
-        showToaster('error', 'NEMA 23 calibration failed. Check motor connections.')
-      }
-    } catch (error) {
-      showToaster('error', 'NEMA 23 calibration error occurred.')
-    } finally {
-      setIsCalibratingNema23(false)
-    }
+    // The IoT backend will handle the simulation and toaster notifications
   }
 
   const handleSG90Calibration = async () => {
     setIsCalibratingSG90(true)
-    
-    try {
-      await new Promise(resolve => setTimeout(resolve, 2000))
-      const isSuccess = Math.random() > 0.12
-      
-      if (isSuccess) {
-        showToaster('success', 'SG90 servo motor calibration completed successfully!')
-      } else {
-        showToaster('error', 'SG90 calibration failed. Check servo connections.')
-      }
-    } catch (error) {
-      showToaster('error', 'SG90 calibration error occurred.')
-    } finally {
-      setIsCalibratingSG90(false)
-    }
+    // The IoT backend will handle the simulation and toaster notifications
   }
 
   const handleMG996RCalibration = async () => {
     setIsCalibratingMG996R(true)
-    
-    try {
-      await new Promise(resolve => setTimeout(resolve, 3500))
-      const isSuccess = Math.random() > 0.1
-      
-      if (isSuccess) {
-        showToaster('success', 'MG996R servo motor calibration completed successfully!')
-      } else {
-        showToaster('error', 'MG996R calibration failed. Check servo connections.')
-      }
-    } catch (error) {
-      showToaster('error', 'MG996R calibration error occurred.')
-    } finally {
-      setIsCalibratingMG996R(false)
-    }
+    // The IoT backend will handle the simulation and toaster notifications
   }
 
   // Handle keyboard input for number pad
@@ -778,128 +711,6 @@ export default function Home() {
       }
     }
   }
-
-
-  // Capture image from video and send to Roboflow
-  const captureImage = async () => {
-    if (!isOnline) {
-      setCaptureError('No internet connection. Roboflow detection requires internet access.')
-      return
-    }
-    
-    if (!videoRef.current) {
-      setCaptureError('No video element found. Please start the camera first.')
-      return
-    }
-    
-    if (videoRef.current.readyState < 2) {
-      setCaptureError('Video not ready. Please wait for camera to load.')
-      return
-    }
-    
-    setIsCapturing(true)
-    setCaptureError(null)
-    setCaptureResult(null)
-    
-    try {
-      // Create canvas to capture frame
-      const canvas = document.createElement('canvas')
-      const ctx = canvas.getContext('2d')
-      const video = videoRef.current
-      
-      canvas.width = video.videoWidth
-      canvas.height = video.videoHeight
-      
-      if (ctx) {
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-        const imageData = canvas.toDataURL('image/jpeg', 0.8)
-        
-        const result = await roboflowService.predictDefect(imageData)
-        
-        if (result) {
-          setCaptureResult(result)
-        } else {
-          setCaptureError('No prediction returned from Roboflow')
-        }
-      } else {
-        setCaptureError('Failed to create canvas context')
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-      setCaptureError(`Capture failed: ${errorMessage}`)
-    } finally {
-      setIsCapturing(false)
-    }
-  }
-
-  // Auto-start camera and show preview when camera tab becomes active
-  useEffect(() => {
-    console.log('Camera tab effect:', { activeTab, isCameraOn, showPreview })
-    
-    if (activeTab === 'camera') {
-      setShowPreview(true)
-      
-      // Small delay to ensure video element is ready
-      setTimeout(() => {
-        if (!isCameraOn) {
-          console.log('Starting camera...')
-          // Check if video element exists before starting camera
-          if (videoRef.current) {
-          startCamera()
-          } else {
-            console.error('Video element not found, retrying...')
-            // Retry after a longer delay
-            setTimeout(() => {
-              if (videoRef.current) {
-                startCamera()
-              } else {
-                console.error('Video element still not found after retry')
-                setCameraError("Video element not available")
-              }
-            }, 500)
-          }
-        } else {
-          console.log('Camera already on, checking video element...')
-          if (videoRef.current) {
-            console.log('Video element exists:', {
-              srcObject: !!videoRef.current.srcObject,
-              readyState: videoRef.current.readyState,
-              paused: videoRef.current.paused,
-              videoWidth: videoRef.current.videoWidth,
-              videoHeight: videoRef.current.videoHeight
-            })
-          }
-        }
-      }, 100)
-    } else {
-      setShowPreview(false)
-    }
-  }, [activeTab, isCameraOn, startCamera])
-
-  // No need for browser fullscreen listeners since we're using UI fullscreen
-
-  // Ensure video plays when entering fullscreen
-  useEffect(() => {
-    if (isFullscreen && videoRef.current && isCameraOn) {
-      // Force video to play and ensure it's visible
-      videoRef.current.play().catch(console.error)
-    }
-  }, [isFullscreen, isCameraOn])
-
-  // Check video stream state when preview becomes visible
-  useEffect(() => {
-    if (showPreview && isCameraOn && videoRef.current) {
-      const video = videoRef.current
-      const stream = video.srcObject as MediaStream
-      
-      // If video has no stream or stream is inactive, restart camera
-      if (!stream || !stream.active || stream.getVideoTracks().length === 0) {
-        startCamera()
-      } else if (video.paused) {
-        video.play().catch(e => {})
-      }
-    }
-  }, [showPreview, activeTab, isCameraOn, startCamera])
 
   return (
     <div className="w-screen h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-800 overflow-hidden">
@@ -939,6 +750,12 @@ export default function Home() {
                 <div className={`w-2 h-2 rounded-full ${isOnline ? "bg-green-400" : "bg-red-400"}`} />
                 <span className={`font-medium text-slate-300 ${isFullscreen ? 'text-xs' : 'text-xs'}`}>NET</span>
               </div>
+
+              {/* IoT Status */}
+              <div className="flex items-center gap-1.5">
+                <div className={`w-2 h-2 rounded-full ${iotConnected ? "bg-green-400 animate-pulse" : "bg-red-400"}`} />
+                <span className={`font-medium text-slate-300 ${isFullscreen ? 'text-xs' : 'text-xs'}`}>IOT</span>
+              </div>
             </div>
               </div>
             </div>
@@ -970,1269 +787,117 @@ export default function Home() {
         </div>
       </div>
 
-
       {/* Main Content - Fixed height for 5" landscape display */}
       <div className={`h-[calc(100vh-5.5rem)] overflow-hidden ${isFullscreen ? 'mt-0 h-[calc(100vh-2rem)]' : 'mt-16'}`}>
-
         {activeTab === 'camera' && (
-          <div className={`h-full flex flex-col ${isFullscreen ? 'p-1' : 'p-3'}`}>
-            <div className={`bg-slate-800/50 backdrop-blur-sm rounded-xl border border-slate-600/30 shadow-lg flex-1 w-full ${isFullscreen ? 'p-0 rounded-none border-0' : 'p-4'}`}>
-              <div className={`bg-slate-900 rounded-lg border border-slate-700/50 relative overflow-hidden w-full ${isFullscreen ? 'h-full rounded-none border-0' : 'aspect-video h-64 sm:h-80 lg:h-96 mb-4'}`}>
-                {/* Video - always rendered but hidden when camera is off */}
-                <video
-                  ref={videoRef}
-                  className={`w-full h-full object-cover ${isCameraOn ? 'block' : 'hidden'}`}
-                  autoPlay
-                  muted
-                  playsInline
-                  style={{ 
-                    transform: isMirrorMode ? "scaleX(-1)" : "none"
-                  }}
-                  onLoadedMetadata={() => {
-                    console.log('Video metadata loaded in render')
-                  }}
-                  onCanPlay={() => {
-                    console.log('Video can play')
-                  }}
-                  onPlay={() => {
-                    console.log('Video started playing')
-                  }}
-                  onError={(e) => {
-                    console.error('Video error in render:', e)
-                  }}
-                />
-                
-                {/* Video placeholder when camera is not on and not loading */}
-                {!isCameraOn && !isCameraLoading && (
-                  <div className="w-full h-full flex items-center justify-center">
-                    <div className="text-center">
-                      <Camera className="h-16 w-16 text-slate-500 mx-auto mb-4" />
-                      <p className="text-slate-400 text-lg">Camera Feed</p>
-                      <p className="text-slate-500 text-sm mt-2">Camera not started</p>
-                      {/* Debug info */}
-                      <div className="mt-4 text-xs text-slate-600">
-                        <p>Debug: isCameraOn={isCameraOn.toString()}</p>
-                        <p>isCameraLoading={isCameraLoading.toString()}</p>
-                        <p>showPreview={showPreview.toString()}</p>
-                        <p>activeTab={activeTab}</p>
-                        {cameraError && <p className="text-red-400">Error: {cameraError}</p>}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Loading indicator when camera is starting */}
-                {isCameraLoading && (
-                  <div className="w-full h-full flex items-center justify-center">
-                    <div className="text-center">
-                      <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                      <p className="text-slate-400 text-lg">Camera Feed</p>
-                      <p className="text-slate-500 text-sm mt-2">Starting camera...</p>
-                    </div>
-                  </div>
-                )}
-                
-                {/* Control buttons */}
-                <div className="absolute top-4 right-4 z-10 flex gap-3">
-                  {/* Fullscreen/Exit Button */}
-                  <button
-                    onClick={toggleFullscreen}
-                    className={`px-6 py-4 rounded-xl text-lg font-semibold transition-all duration-200 flex items-center justify-center gap-2 shadow-lg hover:shadow-xl ${
-                      isFullscreen 
-                        ? 'bg-red-600 hover:bg-red-700 text-white' 
-                        : 'bg-blue-600 hover:bg-blue-700 text-white'
-                    }`}
-                  >
-                    {isFullscreen ? (
-                      <>
-                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                        Exit Fullscreen
-                      </>
-                    ) : (
-                      <>
-                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-                        </svg>
-                        Fullscreen
-                      </>
-                    )}
-                  </button>
-                  
-                  {/* Capture Button */}
-                <button
-                  onClick={captureImage}
-                    disabled={isCameraLoading || isCapturing || !isCameraOn}
-                    className={`px-6 py-4 rounded-xl text-lg font-semibold transition-all duration-200 flex items-center justify-center gap-2 shadow-lg hover:shadow-xl ${
-                      isCapturing || !isCameraOn
-                      ? 'bg-gray-500 cursor-not-allowed' 
-                      : 'bg-green-600 hover:bg-green-700 text-white'
-                  }`}
-                >
-                  {isCapturing ? (
-                      <Loader2 className="w-6 h-6 animate-spin" />
-                  ) : (
-                      <CameraIcon className="w-6 h-6" />
-                  )}
-                    Capture
-                </button>
-                </div>
-
-                
-                {/* Minimalist transparent floating result container */}
-                {(captureResult || captureError) && (
-                  <div className="absolute top-4 right-4 z-20 animate-in slide-in-from-right-2 duration-300">
-                    <div className="bg-black/20 backdrop-blur-md rounded-lg p-3 border border-white/10 shadow-lg max-w-xs">
-                      {captureResult ? (
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <h3 className="text-white font-medium text-sm">Detection</h3>
-                            <button
-                              onClick={() => setCaptureResult(null)}
-                              className="text-white/60 hover:text-white transition-colors"
-                            >
-                              <XCircle className="w-4 h-4" />
-                            </button>
-                          </div>
-                          
-                          <div className="flex items-center justify-between">
-                            <span className="text-white/70 text-sm">Result:</span>
-                            <span className={`font-medium text-sm ${
-                              captureResult.prediction === 'good' ? 'text-green-400' : 
-                              captureResult.prediction === 'cracked' ? 'text-red-400' : 
-                              'text-yellow-400'
-                            }`}>
-                              {captureResult.prediction?.toUpperCase() || 'Unknown'}
-                            </span>
-                          </div>
-                          
-                          <div className="flex items-center justify-between">
-                            <span className="text-white/70 text-sm">Confidence:</span>
-                            <span className="text-white font-mono text-sm">
-                              {captureResult.confidence ? (captureResult.confidence * 100).toFixed(1) : '0'}%
-                            </span>
-                          </div>
-                        </div>
-                      ) : captureError ? (
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <h3 className="text-red-400 font-medium text-sm">Error</h3>
-                            <button
-                              onClick={() => setCaptureError(null)}
-                              className="text-white/60 hover:text-white transition-colors"
-                            >
-                              <XCircle className="w-4 h-4" />
-                            </button>
-                          </div>
-                          <p className="text-white/80 text-xs">{captureError}</p>
-                        </div>
-                      ) : null}
-                </div>
-              </div>
-                )}
-                
-              </div>
-              
-                    </div>
-                  </div>
-                )}
-                
-        {activeTab === 'calibration' && (
-          <div className="h-full overflow-y-auto p-3">
-            <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl p-4 border border-slate-600/30 shadow-lg">
-              <div className="grid grid-cols-3 gap-3">
-                {/* UNO Button */}
-                <button
-                  onClick={handleUnoCalibration}
-                  disabled={isCalibratingUno}
-                  className={`px-4 py-6 rounded-lg font-semibold text-base transition-all duration-200 flex items-center justify-center gap-2 border border-slate-500/30 ${
-                    isCalibratingUno
-                      ? 'bg-gray-600 cursor-not-allowed text-gray-300'
-                      : 'bg-slate-700/50 hover:bg-blue-600/20 text-white shadow-lg hover:shadow-xl transform hover:scale-[1.02]'
-                  }`}
-                >
-                  {isCalibratingUno ? (
-                    <>
-                      <Loader2 className="h-5 w-5 animate-spin" />
-                      <span>UNO</span>
-                    </>
-                  ) : (
-                    <span>UNO</span>
-                  )}
-                </button>
-
-                {/* HX711 Button */}
-                <button
-                  onClick={handleHX711Calibration}
-                  disabled={isCalibratingHX711}
-                  className={`px-4 py-6 rounded-lg font-semibold text-base transition-all duration-200 flex items-center justify-center gap-2 border border-slate-500/30 ${
-                    isCalibratingHX711
-                      ? 'bg-gray-600 cursor-not-allowed text-gray-300'
-                      : 'bg-slate-700/50 hover:bg-green-600/20 text-white shadow-lg hover:shadow-xl transform hover:scale-[1.02]'
-                  }`}
-                >
-                  {isCalibratingHX711 ? (
-                    <>
-                      <Loader2 className="h-5 w-5 animate-spin" />
-                      <span>HX711</span>
-                    </>
-                  ) : (
-                    <span>HX711</span>
-                  )}
-                </button>
-
-                {/* NEMA 23 Button */}
-                <button
-                  onClick={handleNema23Calibration}
-                  disabled={isCalibratingNema23}
-                  className={`px-4 py-6 rounded-lg font-semibold text-base transition-all duration-200 flex items-center justify-center gap-2 border border-slate-500/30 ${
-                    isCalibratingNema23
-                      ? 'bg-gray-600 cursor-not-allowed text-gray-300'
-                      : 'bg-slate-700/50 hover:bg-purple-600/20 text-white shadow-lg hover:shadow-xl transform hover:scale-[1.02]'
-                  }`}
-                >
-                  {isCalibratingNema23 ? (
-                    <>
-                      <Loader2 className="h-5 w-5 animate-spin" />
-                      <span>NEMA 23</span>
-                    </>
-                  ) : (
-                    <span>NEMA 23</span>
-                  )}
-                </button>
-
-                {/* SG90 Button */}
-                <button
-                  onClick={handleSG90Calibration}
-                  disabled={isCalibratingSG90}
-                  className={`px-4 py-6 rounded-lg font-semibold text-base transition-all duration-200 flex items-center justify-center gap-2 border border-slate-500/30 ${
-                    isCalibratingSG90
-                      ? 'bg-gray-600 cursor-not-allowed text-gray-300'
-                      : 'bg-slate-700/50 hover:bg-orange-600/20 text-white shadow-lg hover:shadow-xl transform hover:scale-[1.02]'
-                  }`}
-                >
-                  {isCalibratingSG90 ? (
-                    <>
-                      <Loader2 className="h-5 w-5 animate-spin" />
-                      <span>SG90</span>
-                    </>
-                  ) : (
-                    <span>SG90</span>
-                  )}
-                </button>
-
-                {/* MG996R Button */}
-                <button
-                  onClick={handleMG996RCalibration}
-                  disabled={isCalibratingMG996R}
-                  className={`px-4 py-6 rounded-lg font-semibold text-base transition-all duration-200 flex items-center justify-center gap-2 border border-slate-500/30 ${
-                    isCalibratingMG996R
-                      ? 'bg-gray-600 cursor-not-allowed text-gray-300'
-                      : 'bg-slate-700/50 hover:bg-red-600/20 text-white shadow-lg hover:shadow-xl transform hover:scale-[1.02]'
-                  }`}
-                >
-                  {isCalibratingMG996R ? (
-                    <>
-                      <Loader2 className="h-5 w-5 animate-spin" />
-                      <span>MG996R</span>
-                    </>
-                  ) : (
-                    <span>MG996R</span>
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
+          <CameraTab 
+            isOnline={isOnline}
+            isFullscreen={isFullscreen}
+            onToggleFullscreen={toggleFullscreen}
+          />
         )}
-                
+
         {activeTab === 'batch' && (
-          <div className="h-full overflow-y-auto p-3">
-            <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl p-4 border border-slate-600/30 shadow-lg">
-              <div className="space-y-6">
-                {/* Batch Setup Section */}
-                {!currentBatch && (
-                  <div className="space-y-4">
-                    <button
-                      onClick={() => {
-                        if (currentAccountId) {
-                          setShowCreateBatchModal(true)
-                        } else {
-                          setActiveTab('account')
-                        }
-                      }}
-                      className={`group w-full border rounded-lg p-4 transition-all duration-200 flex flex-col items-center justify-center text-center ${
-                        currentAccountId 
-                          ? 'bg-blue-600/20 hover:bg-blue-600/30 border-blue-500/30' 
-                          : 'bg-red-600/20 hover:bg-red-600/30 border-red-500/30'
-                      }`}
-                    >
-                      <span className="text-slate-400 text-sm mb-1">
-                        {currentAccountId ? 'Create New Batch' : 'Account Required'}
-                    </span>
-                      <p className="text-white font-mono font-bold text-xl">Enter Batch</p>
-                      <span className={`text-xs mt-1 opacity-0 group-hover:opacity-100 transition-opacity ${
-                        currentAccountId ? 'text-blue-300' : 'text-red-300'
-                      }`}>
-                        {currentAccountId 
-                          ? 'Click to create or enter existing batch' 
-                          : 'Click to go to Account tab first'
-                        }
-                    </span>
-                    </button>
-                  </div>
-                )}
-
-                {/* Current Batch Status */}
-                {currentBatch && (
-                  <div className="space-y-3">
-                    <h3 className="text-lg font-semibold text-white">Current Batch</h3>
-                    <div className="flex gap-3">
-                      <button
-                        onClick={() => setShowCreateBatchModal(true)}
-                        className="group flex-1 bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 rounded-lg p-4 transition-all duration-200 flex flex-col items-start justify-center text-left"
-                      >
-                        <span className="text-slate-400 text-sm mb-1">Batch ID:</span>
-                        <p className="text-white font-mono font-bold text-xl">{currentBatch.id}</p>
-                        <span className="text-blue-300 text-xs mt-1 opacity-0 group-hover:opacity-100 transition-opacity">Click to change batch</span>
-                      </button>
-                      <button
-                        onClick={resetBatch}
-                        className="bg-red-600 hover:bg-red-700 text-white px-6 py-4 rounded-lg font-medium transition-all duration-200 flex items-center gap-2"
-                      >
-                        <XCircle className="h-5 w-5" />
-                        Clear
-                      </button>
-            </div>
-          </div>
-        )}
-
-
-                {/* Batch Statistics */}
-                {currentBatch && (
-                  <div className="space-y-3">
-                    <h3 className="text-lg font-semibold text-white">Batch Statistics</h3>
-                    
-                    {/* Overview View - Total + Buttons */}
-                    {activeStatsView === 'overview' && (
-                      <div className="grid grid-cols-3 gap-3">
-                        {/* Total Display */}
-                        <div className="bg-slate-700/30 rounded-lg border border-slate-600/30 p-4 text-center">
-                          <div className="text-2xl font-bold text-blue-400 mb-1">{batchStats.totalEggs}</div>
-                          <div className="text-slate-400 text-xs">Total</div>
-                  </div>
-              
-                        {/* Size Button */}
-                        <button
-                          onClick={() => toggleStatsView('size')}
-                          className="bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 rounded-lg p-4 transition-all duration-200 flex flex-col items-center justify-center text-center"
-                        >
-                          <div className="text-lg font-bold text-blue-400 mb-1">Size</div>
-                          <div className="text-xs text-slate-400">Small • Medium • Large</div>
-                        </button>
-                        
-                        {/* Quality Button */}
-                        <button
-                          onClick={() => toggleStatsView('quality')}
-                          className="bg-green-600/20 hover:bg-green-600/30 border border-green-500/30 rounded-lg p-4 transition-all duration-200 flex flex-col items-center justify-center text-center"
-                        >
-                          <div className="text-lg font-bold text-green-400 mb-1">Quality</div>
-                          <div className="text-xs text-slate-400">Good • Dirty • Bad</div>
-                        </button>
-                </div>
-                    )}
-
-                    {/* Size View */}
-                    {activeStatsView === 'size' && (
-                      <div className="grid grid-cols-4 gap-3">
-                        <button
-                          onClick={() => setActiveStatsView('overview')}
-                          className="bg-slate-700/30 hover:bg-slate-600/30 border border-slate-600/30 rounded-lg p-4 text-center transition-all duration-200 flex flex-col items-center justify-center"
-                        >
-                          <div className="text-slate-400 text-sm">← Back</div>
-                          <div className="text-xs text-slate-500">to Overview</div>
-                        </button>
-                        <div className="bg-slate-700/30 rounded-lg border border-slate-600/30 p-4 text-center">
-                          <div className="text-2xl font-bold text-blue-400 mb-1">{batchStats.smallEggs}</div>
-                          <div className="text-sm text-slate-400">Small</div>
-                  </div>
-                        <div className="bg-slate-700/30 rounded-lg border border-slate-600/30 p-4 text-center">
-                          <div className="text-2xl font-bold text-green-400 mb-1">{batchStats.mediumEggs}</div>
-                          <div className="text-sm text-slate-400">Medium</div>
-                </div>
-                        <div className="bg-slate-700/30 rounded-lg border border-slate-600/30 p-4 text-center">
-                          <div className="text-2xl font-bold text-orange-400 mb-1">{batchStats.largeEggs}</div>
-                          <div className="text-sm text-slate-400">Large</div>
-                </div>
-              </div>
-                    )}
-
-                    {/* Quality View */}
-                    {activeStatsView === 'quality' && (
-                      <div className="grid grid-cols-4 gap-3">
-                        <button
-                          onClick={() => setActiveStatsView('overview')}
-                          className="bg-slate-700/30 hover:bg-slate-600/30 border border-slate-600/30 rounded-lg p-4 text-center transition-all duration-200 flex flex-col items-center justify-center"
-                        >
-                          <div className="text-slate-400 text-sm">← Back</div>
-                          <div className="text-xs text-slate-500">to Overview</div>
-                        </button>
-                        <div className="bg-slate-700/30 rounded-lg border border-slate-600/30 p-4 text-center">
-                          <div className="text-2xl font-bold text-emerald-400 mb-1">{batchStats.goodEggs}</div>
-                          <div className="text-sm text-slate-400">Good</div>
-                  </div>
-                        <div className="bg-slate-700/30 rounded-lg border border-slate-600/30 p-4 text-center">
-                          <div className="text-2xl font-bold text-yellow-400 mb-1">{batchStats.dirtyEggs}</div>
-                          <div className="text-sm text-slate-400">Dirty</div>
-                  </div>
-                        <div className="bg-slate-700/30 rounded-lg border border-slate-600/30 p-4 text-center">
-                          <div className="text-2xl font-bold text-red-400 mb-1">{batchStats.badEggs}</div>
-                          <div className="text-sm text-slate-400">Bad</div>
-                  </div>
-                  </div>
-                    )}
-                </div>
-                )}
-              </div>
-            </div>
-          </div>
+          <BatchTab
+            currentAccountId={currentAccountId}
+            currentBatch={currentBatch}
+            batchStatus={batchStatus}
+            batchStats={batchStats}
+            activeStatsView={activeStatsView}
+            onSetActiveTab={(tab: string) => setActiveTab(tab as 'camera' | 'batch' | 'configuration' | 'calibration' | 'account')}
+            onShowCreateBatchModal={() => setShowCreateBatchModal(true)}
+            onResetBatch={resetBatch}
+            onToggleStatsView={toggleStatsView}
+          />
         )}
 
         {activeTab === 'configuration' && (
-          <div className="h-full overflow-y-auto p-3">
-            <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl p-4 border border-slate-600/30 shadow-lg">
-
-              <div className="space-y-6">
-
-                {/* Egg Size Range Configuration - Minimal */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-base font-semibold text-white">Egg Size Ranges (grams)</h3>
-                  <div className="flex items-center gap-2">
-                      {isLoadingConfig && (
-                        <Loader2 className="h-4 w-4 text-blue-400 animate-spin" />
-                      )}
-                      <div className={`text-xs px-2 py-1 rounded ${
-                        configSource === 'user' ? 'bg-green-600 text-white' :
-                        configSource === 'global' ? 'bg-blue-600 text-white' :
-                        'bg-slate-600 text-white'
-                      }`}>
-                        {configSource === 'user' ? 'Custom' : 
-                         configSource === 'global' ? 'Default' : 'Local'}
-                </div>
-              </div>
-            </div>
-
-                  <div className="grid grid-cols-3 gap-3">
-                    {/* Small Eggs */}
-                    <div className="flex items-center justify-between p-2 bg-slate-700/30 rounded border border-slate-600/30">
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
-                          <span className="text-white font-bold text-xs">S</span>
-                </div>
-                        <div>
-                          <span className="text-slate-300 text-sm font-medium">Small</span>
-                          <p className="text-slate-400 text-xs">{eggRanges.small.min.toFixed(2)}-{eggRanges.small.max.toFixed(2)}g</p>
-                </div>
-              </div>
-                      <button
-                        onClick={() => handleRangeEdit('small')}
-                        className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-4 rounded-lg text-lg font-medium transition-all duration-200"
-                      >
-                        Edit
-                      </button>
-                </div>
-
-                    {/* Medium Eggs */}
-                    <div className="flex items-center justify-between p-2 bg-slate-700/30 rounded border border-slate-600/30">
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center">
-                          <span className="text-white font-bold text-xs">M</span>
-              </div>
-                        <div>
-                          <span className="text-slate-300 text-sm font-medium">Medium</span>
-                          <p className="text-slate-400 text-xs">{eggRanges.medium.min.toFixed(2)}-{eggRanges.medium.max.toFixed(2)}g</p>
-            </div>
-                </div>
-                      <button
-                        onClick={() => handleRangeEdit('medium')}
-                        className="bg-green-600 hover:bg-green-700 text-white px-6 py-4 rounded-lg text-lg font-medium transition-all duration-200"
-                      >
-                        Edit
-                      </button>
-          </div>
-
-                    {/* Large Eggs */}
-                    <div className="flex items-center justify-between p-2 bg-slate-700/30 rounded border border-slate-600/30">
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 bg-orange-500 rounded-full flex items-center justify-center">
-                          <span className="text-white font-bold text-xs">L</span>
-                </div>
-                        <div>
-                          <span className="text-slate-300 text-sm font-medium">Large</span>
-                          <p className="text-slate-400 text-xs">{eggRanges.large.min.toFixed(2)}-{eggRanges.large.max.toFixed(2)}g</p>
-                </div>
-                </div>
-                      <button
-                        onClick={() => handleRangeEdit('large')}
-                        className="bg-orange-600 hover:bg-orange-700 text-white px-6 py-4 rounded-lg text-lg font-medium transition-all duration-200"
-                      >
-                        Edit
-                      </button>
-              </div>
-                </div>
-
-                  {/* Gap Warning */}
-                  {showGapWarning && rangeValidation && rangeValidation.hasGaps && (
-                    <div className="mt-3 p-3 bg-yellow-600/20 border border-yellow-500/30 rounded-lg">
-                      <div className="flex items-start gap-2">
-                        <AlertCircle className="h-5 w-5 text-yellow-400 mt-0.5 flex-shrink-0" />
-                        <div className="text-sm">
-                          <div className="font-medium text-yellow-200 mb-1">Range Gaps Detected</div>
-                          <div className="text-yellow-300 space-y-1">
-                            {rangeValidation.gaps.map((gap, index) => (
-                              <div key={index}>
-                                Gap between {gap.between}: {gap.from.toFixed(2)}g to {gap.to.toFixed(2)}g
-              </div>
-                            ))}
-                  </div>
-                          <div className="text-xs text-yellow-400 mt-2">
-                            Consider adjusting ranges to eliminate gaps for complete coverage.
-                  </div>
-                  </div>
-                        <button
-                          onClick={() => setShowGapWarning(false)}
-                          className="text-yellow-400 hover:text-yellow-300 ml-auto"
-                        >
-                          <XCircle className="h-4 w-4" />
-                        </button>
-            </div>
-          </div>
+          <ConfigurationTab
+            eggRanges={eggRanges}
+            configSource={configSource}
+            isLoadingConfig={isLoadingConfig}
+            showGapWarning={showGapWarning}
+            rangeValidation={rangeValidation}
+            isCustomized={isCustomized}
+            onHandleRangeEdit={handleRangeEdit}
+            onResetToDefaults={resetToDefaults}
+            onSetShowGapWarning={setShowGapWarning}
+          />
         )}
 
-                  {/* Reset to Defaults Button */}
-                  {isCustomized && (
-                    <div className="flex justify-center mt-3">
-                      <button
-                        onClick={resetToDefaults}
-                        disabled={isLoadingConfig}
-                        className="bg-gray-600 hover:bg-gray-700 disabled:bg-gray-800 text-white px-4 py-2 rounded text-sm font-medium transition-all duration-200 flex items-center gap-2"
-                      >
-                        {isLoadingConfig ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Settings className="h-4 w-4" />
-                        )}
-                        Reset to Defaults
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                </div>
-              </div>
-            </div>
-        )}
+               {activeTab === 'calibration' && (
+                 <CalibrationTab
+                   isCalibratingUno={isCalibratingUno}
+                   isCalibratingHX711={isCalibratingHX711}
+                   isCalibratingNema23={isCalibratingNema23}
+                   isCalibratingSG90={isCalibratingSG90}
+                   isCalibratingMG996R={isCalibratingMG996R}
+                   onHandleUnoCalibration={handleUnoCalibration}
+                   onHandleHX711Calibration={handleHX711Calibration}
+                   onHandleNema23Calibration={handleNema23Calibration}
+                   onHandleSG90Calibration={handleSG90Calibration}
+                   onHandleMG996RCalibration={handleMG996RCalibration}
+                   showToaster={showToaster}
+                   onResetCalibrationState={resetCalibrationState}
+                   iotConnected={iotConnected}
+                 />
+               )}
 
         {activeTab === 'account' && (
-          <div className="h-full overflow-y-auto p-3">
-            <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl p-4 border border-slate-600/30 shadow-lg">
-
-              <div className="space-y-6">
-                {/* Account Info Display - Only show when logged in */}
-                {currentAccountId && (
-                <div className="space-y-3">
-                    <div className="bg-gradient-to-r from-blue-900/30 to-purple-900/30 rounded-xl p-6 border border-blue-500/30 shadow-lg">
-                      {isLoadingUser ? (
-                        <div className="flex items-center justify-center gap-3">
-                          <Loader2 className="h-6 w-6 text-blue-400 animate-spin" />
-                          <span className="text-white">Loading user data...</span>
-                </div>
-                      ) : userData ? (
-                        <div className="flex items-center justify-between">
-                          {/* Left side - User Name */}
-                <div className="flex items-center gap-3">
-                            <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
-                              <User className="h-6 w-6 text-white" />
-                </div>
-                            <div>
-                              <h4 className="text-white font-semibold text-lg">
-                                {userData.fullname || userData.username || 'User'}
-                              </h4>
-                              <p className="text-slate-400 text-sm">
-                                {userData.email || 'No email'}
-                              </p>
-                              <p className="text-slate-500 text-xs">
-                                {userData.provider === 'google' ? 'Google Account' : 'Email Account'}
-                              </p>
-                </div>
-              </div>
-
-                          {/* Right side - Account ID */}
-                          <div className="text-right">
-                            <div className="text-slate-400 text-sm mb-2">Account ID</div>
-                            <div className="text-2xl font-mono font-bold text-blue-400">{currentAccountId}</div>
-                            <div className="text-slate-500 text-xs mt-1">
-                              {userData.verified ? '✓ Verified' : '⚠ Unverified'}
-                    </div>
-                </div>
-                </div>
-                      ) : (
-                        <div className="text-center text-slate-400">
-                          <AlertCircle className="h-8 w-8 mx-auto mb-2 text-yellow-400" />
-                          <p>User data not found</p>
-                          <p className="text-sm">Account ID exists but user data is missing</p>
-              </div>
-                      )}
-            </div>
-          </div>
-        )}
-
-                {/* Input ID Section */}
-                <div className="space-y-3">
-                  <div className="space-y-4">
-                    <div className="p-4 bg-slate-700/30 rounded-lg border border-slate-600/30">
-                      <div className="flex gap-3">
-                        <button
-                          onClick={handleInputId}
-                          className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-lg font-medium transition-all duration-200 flex items-center justify-center gap-2"
-                        >
-                          <User className="h-5 w-5" />
-                          {currentAccountId ? 'Change Account ID' : 'Enter Account ID'}
-                      </button>
-                        {currentAccountId && (
-                          <button
-                            onClick={clearAccountId}
-                            className="bg-red-600 hover:bg-red-700 text-white px-4 py-3 rounded-lg font-medium transition-all duration-200 flex items-center justify-center gap-2"
-                          >
-                            <XCircle className="h-5 w-5" />
-                            Clear
-                      </button>
-                        )}
-                      </div>
-            </div>
-            </div>
-            </div>
-            </div>
-          </div>
-          </div>
+          <AccountTab
+            currentAccountId={currentAccountId}
+            userData={userData}
+            isLoadingUser={isLoadingUser}
+            onHandleInputId={handleInputId}
+            onClearAccountId={clearAccountId}
+          />
         )}
         </div>
 
-        {/* Modern Initialization Modal */}
-        {showTestModal && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-50">
-            <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-8 max-w-lg w-full mx-4 border border-white/20 shadow-2xl">
-              {/* Header */}
-              <div className="text-center mb-8">
-                <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full mb-4">
-                  <Activity className="h-8 w-8 text-white" />
-                </div>
-                <h3 className="text-2xl font-light text-white mb-2">Initializing</h3>
-                <p className="text-white/70 text-sm">Setting up MEGG system components</p>
-              </div>
+      {/* Modals */}
+      <PinModal
+        showPinModal={showPinModal}
+        pinInput={pinInput}
+        pinError={pinError}
+        onHandlePinChange={handlePinChange}
+        onHandlePinSubmit={handlePinSubmit}
+        onSetShowPinModal={setShowPinModal}
+        onHandleKeyPress={handleKeyPress}
+      />
 
-              {/* Progress Circle */}
-              <div className="relative w-32 h-32 mx-auto mb-8">
-                <svg className="w-32 h-32 transform -rotate-90" viewBox="0 0 120 120">
-                  {/* Background circle */}
-                  <circle
-                    cx="60"
-                    cy="60"
-                    r="50"
-                    stroke="rgba(255,255,255,0.1)"
-                    strokeWidth="8"
-                    fill="none"
-                  />
-                  {/* Progress circle */}
-                  <circle
-                    cx="60"
-                    cy="60"
-                    r="50"
-                    stroke="url(#gradient)"
-                    strokeWidth="8"
-                    fill="none"
-                    strokeLinecap="round"
-                    strokeDasharray={`${2 * Math.PI * 50}`}
-                    strokeDashoffset={`${2 * Math.PI * 50 * (1 - testProgress / 100)}`}
-                    className="transition-all duration-1000 ease-out"
-                  />
-                  <defs>
-                    <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                      <stop offset="0%" stopColor="#3b82f6" />
-                      <stop offset="100%" stopColor="#10b981" />
-                    </linearGradient>
-                  </defs>
-                </svg>
-                {/* Percentage in center */}
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <span className="text-3xl font-light text-white">{testProgress}%</span>
-                </div>
-              </div>
+      <RangeModal
+        showRangeModal={showRangeModal}
+        editingRange={editingRange}
+        minInput={minInput}
+        maxInput={maxInput}
+        rangeError={rangeError}
+        currentInputField={currentInputField}
+        isSavingRange={isSavingRange}
+        onHandleRangeSubmit={handleRangeSubmit}
+        onSetShowRangeModal={setShowRangeModal}
+        onSetCurrentInputField={setCurrentInputField}
+        onHandleMinChange={handleMinChange}
+        onHandleMaxChange={handleMaxChange}
+        onHandleKeyPress={handleKeyPress}
+      />
 
-              {/* Current Status */}
-              <div className="text-center">
-                <div className="flex items-center justify-center gap-3 mb-2">
-                  <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                  <span className="text-white font-medium">{currentTest}</span>
-                </div>
-                <p className="text-white/60 text-sm">{testStatus}</p>
-              </div>
+      <BatchModal
+        showCreateBatchModal={showCreateBatchModal}
+        batchIdInput={batchIdInput}
+        batchIdError={batchIdError}
+        currentAccountId={currentAccountId}
+        isCheckingBatch={isCheckingBatch}
+        existingBatch={existingBatch}
+        onHandleBatchIdChange={handleBatchIdChange}
+        onProceedWithBatch={proceedWithBatch}
+        onSetShowCreateBatchModal={setShowCreateBatchModal}
+        onHandleKeyPress={handleKeyPress}
+      />
 
-              {/* Minimal Progress Dots */}
-              <div className="flex justify-center gap-2 mt-8">
-                {[0, 1, 2, 3, 4, 5, 6].map((dot) => (
-                  <div
-                    key={dot}
-                    className={`w-2 h-2 rounded-full transition-all duration-300 ${
-                      (testProgress / 100) * 7 > dot
-                        ? 'bg-white scale-110'
-                        : 'bg-white/30'
-                    }`}
-                  />
-                )                )}
-
-                {/* Account Activity Section */}
-                {currentAccountId && userData && (
-                  <div className="space-y-3">
-                    <h3 className="text-lg font-semibold text-white">Account Activity</h3>
-                    <div className="bg-slate-700/30 rounded-lg border border-slate-600/30 p-4">
-                      <div className="grid grid-cols-2 gap-4 text-sm">
-                        <div>
-                          <span className="text-slate-400">Created:</span>
-                          <p className="text-white font-medium">
-                            {userData.createdAt ? new Date(userData.createdAt).toLocaleDateString() : 'Unknown'}
-                          </p>
-              </div>
-                        <div>
-                          <span className="text-slate-400">Last Login:</span>
-                          <p className="text-white font-medium">
-                            {userData.lastLogin ? new Date(userData.lastLogin).toLocaleDateString() : 'Unknown'}
-                          </p>
-                        </div>
-                        <div>
-                          <span className="text-slate-400">Phone:</span>
-                          <p className="text-white font-medium">
-                            {userData.phone || 'Not provided'}
-                          </p>
-                        </div>
-                        <div>
-                          <span className="text-slate-400">Status:</span>
-                          <p className={`font-medium ${userData.verified ? 'text-green-400' : 'text-yellow-400'}`}>
-                            {userData.verified ? 'Verified' : 'Pending Verification'}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Account Actions */}
-                {currentAccountId && userData && (
-                  <div className="space-y-3">
-                    <h3 className="text-lg font-semibold text-white">Account Actions</h3>
-                    <div className="grid grid-cols-2 gap-3">
-                      <button
-                        onClick={() => {
-                          // Update last login time
-                          if (userData.uid) {
-                            updateDoc(doc(db, 'users', userData.uid), {
-                              lastLogin: new Date().toISOString()
-                            }).catch(console.error)
-                          }
-                          setActiveTab('camera')
-                        }}
-                        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-lg font-medium transition-all duration-200 flex items-center justify-center gap-2"
-                      >
-                        <Camera className="h-5 w-5" />
-                        Start Camera
-                      </button>
-                      <button
-                        onClick={() => {
-                          // Refresh user data
-                          if (currentAccountId) {
-                            fetchUserData(currentAccountId)
-                          }
-                        }}
-                        className="bg-green-600 hover:bg-green-700 text-white px-4 py-3 rounded-lg font-medium transition-all duration-200 flex items-center justify-center gap-2"
-                        disabled={isLoadingUser}
-                      >
-                        {isLoadingUser ? (
-                          <Loader2 className="h-5 w-5 animate-spin" />
-                        ) : (
-                          <Activity className="h-5 w-5" />
-                        )}
-                        Refresh Data
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Add keyframes for animations */}
-        <style dangerouslySetInnerHTML={{
-          __html: `
-          @keyframes ping-slow {
-            0% {
-              transform: scale(1);
-              opacity: 0.8;
-            }
-            50% {
-              transform: scale(1.2);
-              opacity: 0.4;
-            }
-            100% {
-              transform: scale(1);
-              opacity: 0.8;
-            }
-          }
-          `
-        }} />
-        {/* Account ID Input Modal */}
-        {showPinModal && (
-          <div 
-            className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-50"
-            onKeyDown={handleKeyPress}
-            tabIndex={-1}
-          >
-            <div className="bg-white/10 backdrop-blur-xl rounded-2xl px-4 py-3 max-w-3xl w-full mx-4 border border-white/20 shadow-2xl h-[450px]">
-
-              {/* Account ID Display and Number Pad */}
-              <div className="grid grid-cols-2 gap-4 h-full">
-                {/* Left Column - PIN Display and Action Buttons */}
-                <div className="flex flex-col justify-center items-center space-y-4">
-                  <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 border-2 border-blue-500/30 rounded-2xl px-4 py-8 shadow-2xl">
-                    <div className="text-center">
-                      <div className="text-white text-3xl font-mono mb-4">MEGG-</div>
-                      <div className="flex justify-center space-x-2">
-                        {Array.from({ length: 6 }, (_, index) => (
-                          <div
-                            key={index}
-                            className={`w-10 h-14 rounded-lg border-2 flex items-center justify-center text-xl font-mono font-bold transition-all duration-300 ${
-                              index < pinInput.length
-                                ? 'bg-blue-600 border-blue-400 text-white shadow-lg'
-                                : 'bg-slate-700/50 border-slate-500/50 text-slate-400'
-                            }`}
-                          >
-                            {index < pinInput.length ? pinInput[index] : '●'}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* Action Buttons */}
-                  <div className="flex gap-3">
-                    <button
-                      onClick={() => setShowPinModal(false)}
-                      className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-xl text-base font-bold transition-all duration-200 flex items-center justify-center gap-2 shadow-lg hover:shadow-xl"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={handlePinSubmit}
-                      disabled={pinInput.length !== 6}
-                      className={`px-6 py-3 rounded-xl text-base font-bold transition-all duration-200 flex items-center justify-center gap-2 shadow-lg hover:shadow-xl ${
-                        pinInput.length === 6
-                          ? 'bg-blue-600 hover:bg-blue-700 text-white'
-                          : 'bg-gray-500 cursor-not-allowed text-gray-300'
-                      }`}
-                    >
-                      ✓ Bind
-                    </button>
-                  </div>
-                  
-                  {pinError && (
-                    <p className="text-red-400 text-sm text-center">{pinError}</p>
-                  )}
-                </div>
-
-                {/* Right Column - Number Pad */}
-                <div className="flex flex-col justify-center">
-                  <div className="space-y-3">
-                    <div className="grid grid-cols-3 gap-3">
-                      {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
-                        <button
-                          key={num}
-                          data-number={num}
-                          onClick={() => handlePinChange(pinInput + num.toString())}
-                          disabled={pinInput.length >= 6}
-                          className="w-30 h-20 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:cursor-not-allowed text-white text-2xl font-semibold rounded-xl transition-all duration-200 flex items-center justify-center shadow-lg hover:shadow-xl focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                        >
-                          {num}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="grid grid-cols-3 gap-3">
-                      <button
-                        onClick={() => handlePinChange(pinInput + '0')}
-                        disabled={pinInput.length >= 6}
-                        className="w-30 h-20 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:cursor-not-allowed text-white text-2xl font-semibold rounded-xl transition-all duration-200 flex items-center justify-center shadow-lg hover:shadow-xl focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                      >
-                        0
-                      </button>
-                      <button
-                        onClick={() => handlePinChange(pinInput.slice(0, -1))}
-                        disabled={pinInput.length === 0}
-                        className="w-30 h-20 bg-slate-600 hover:bg-slate-500 disabled:bg-slate-800 disabled:cursor-not-allowed text-white text-lg font-semibold rounded-xl transition-all duration-200 flex items-center justify-center shadow-lg hover:shadow-xl"
-                      >
-                        ⌫
-                      </button>
-                      <div className="w-30 h-20"></div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Range Editing Modal */}
-        {showRangeModal && editingRange && (
-          <div 
-            className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-50"
-            onKeyDown={handleKeyPress}
-            tabIndex={-1}
-          >
-            <div className="bg-white/10 backdrop-blur-xl rounded-2xl px-8 py-4 max-w-5xl w-full mx-4 border border-white/20 shadow-2xl h-[450px]">
-
-              {/* Range Display and Number Pad */}
-              <div className="grid grid-cols-2 gap-8 h-full">
-                {/* Left Column - Range Display */}
-                <div className="flex flex-col justify-center items-center">
-                  <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 border-2 border-blue-500/30 rounded-2xl px-8 py-12 shadow-2xl">
-                    <div className="text-center">
-                      <div className="text-white text-2xl font-semibold mb-4 capitalize">
-                        {editingRange} Eggs
-                      </div>
-                       <div className="flex justify-center items-center space-x-8">
-                         {/* Min Input */}
-                         <div className="flex flex-col items-center space-y-3">
-                           <div className={`text-sm font-medium ${currentInputField === 'min' ? 'text-blue-400' : 'text-slate-400'}`}>
-                             Min {currentInputField === 'min' && '●'}
-                           </div>
-                           <div 
-                             className={`w-24 h-20 rounded-lg flex items-center justify-center transition-all duration-200 cursor-pointer hover:scale-105 ${
-                               currentInputField === 'min' 
-                                 ? 'bg-blue-600/20 border-2 border-blue-400 shadow-lg shadow-blue-400/20' 
-                                 : 'bg-slate-700 border-2 border-slate-600 hover:border-slate-500'
-                             }`}
-                             onClick={() => setCurrentInputField('min')}
-                           >
-                             <span className="text-2xl font-bold text-white font-mono">
-                               {minInput || '0.00'}
-                             </span>
-                           </div>
-                         </div>
-                         
-                         {/* Dash Separator */}
-                         <div className="text-white text-3xl font-bold">-</div>
-                         
-                         {/* Max Input */}
-                         <div className="flex flex-col items-center space-y-3">
-                           <div className={`text-sm font-medium ${currentInputField === 'max' ? 'text-green-400' : 'text-slate-400'}`}>
-                             Max {currentInputField === 'max' && '●'}
-                           </div>
-                           <div 
-                             className={`w-24 h-20 rounded-lg flex items-center justify-center transition-all duration-200 cursor-pointer hover:scale-105 ${
-                               currentInputField === 'max' 
-                                 ? 'bg-green-600/20 border-2 border-green-400 shadow-lg shadow-green-400/20' 
-                                 : 'bg-slate-700 border-2 border-slate-600 hover:border-slate-500'
-                             }`}
-                             onClick={() => setCurrentInputField('max')}
-                           >
-                             <span className="text-2xl font-bold text-white font-mono">
-                               {maxInput || '0.00'}
-                             </span>
-                           </div>
-                         </div>
-                       </div>
-                       
-                       {/* Action Buttons */}
-                       <div className="flex gap-4 mt-8">
-                         <button
-                           onClick={() => setShowRangeModal(false)}
-                           className="bg-red-600 hover:bg-red-700 text-white px-8 py-4 rounded-xl text-lg font-semibold transition-all duration-200 flex items-center justify-center gap-3 shadow-lg hover:shadow-xl"
-                         >
-                           <XCircle className="h-5 w-5" />
-                           Cancel
-                         </button>
-                         <button
-                           onClick={handleRangeSubmit}
-                           disabled={minInput.length === 0 || maxInput.length === 0 || isSavingRange}
-                           className={`px-8 py-4 rounded-xl text-lg font-semibold transition-all duration-200 flex items-center justify-center gap-3 shadow-lg hover:shadow-xl ${
-                             minInput.length > 0 && maxInput.length > 0 && !isSavingRange
-                               ? 'bg-blue-600 hover:bg-blue-700 text-white'
-                               : 'bg-gray-500 cursor-not-allowed text-gray-300'
-                           }`}
-                         >
-                           {isSavingRange ? (
-                             <>
-                               <Loader2 className="h-5 w-5 animate-spin" />
-                               Saving...
-                             </>
-                           ) : (
-                             <>
-                               <Activity className="h-5 w-5" />
-                               Save Range
-                             </>
-                           )}
-                         </button>
-                       </div>
-                    </div>
-                  </div>
-                  
-                  {rangeError && (
-                    <p className="text-red-400 text-sm text-center mt-4">{rangeError}</p>
-                  )}
-                </div>
-
-                {/* Right Column - Number Pad */}
-                <div className="flex flex-col justify-center">
-                  <div className="space-y-3">
-                    <div className="grid grid-cols-3 gap-3">
-                       {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
-                         <button
-                           key={num}
-                           data-number={num}
-                           onClick={() => {
-                             // Add to current input field
-                             if (currentInputField === 'min') {
-                               handleMinChange(minInput + num.toString())
-                             } else {
-                               handleMaxChange(maxInput + num.toString())
-                             }
-                           }}
-                           disabled={(minInput.length >= 5 && maxInput.length >= 5)}
-                           className="w-30 h-20 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:cursor-not-allowed text-white text-2xl font-semibold rounded-xl transition-all duration-200 flex items-center justify-center shadow-lg hover:shadow-xl focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                         >
-                           {num}
-                         </button>
-                       ))}
-                    </div>
-                    <div className="grid grid-cols-3 gap-3">
-                      <button
-                        onClick={() => {
-                          // Add 0 to current input field
-                          if (currentInputField === 'min') {
-                            handleMinChange(minInput + '0')
-                          } else {
-                            handleMaxChange(maxInput + '0')
-                          }
-                        }}
-                        disabled={(minInput.length >= 5 && maxInput.length >= 5)}
-                        className="w-30 h-20 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:cursor-not-allowed text-white text-2xl font-semibold rounded-xl transition-all duration-200 flex items-center justify-center shadow-lg hover:shadow-xl focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                      >
-                        0
-                      </button>
-                      <button
-                        onClick={() => {
-                          // Add decimal point to current input field
-                          if (currentInputField === 'min') {
-                            handleMinChange(minInput + '.')
-                          } else {
-                            handleMaxChange(maxInput + '.')
-                          }
-                        }}
-                        disabled={(currentInputField === 'min' && minInput.includes('.')) || (currentInputField === 'max' && maxInput.includes('.')) || (currentInputField === 'min' && minInput.length === 0) || (currentInputField === 'max' && maxInput.length === 0)}
-                        className="w-30 h-20 bg-slate-600 hover:bg-slate-500 disabled:bg-slate-800 disabled:cursor-not-allowed text-white text-lg font-semibold rounded-xl transition-all duration-200 flex items-center justify-center shadow-lg hover:shadow-xl"
-                      >
-                        .
-                      </button>
-                      <button
-                        onClick={() => {
-                          // Delete from current input field
-                          if (currentInputField === 'min' && minInput.length > 0) {
-                            handleMinChange(minInput.slice(0, -1))
-                          } else if (currentInputField === 'max' && maxInput.length > 0) {
-                            handleMaxChange(maxInput.slice(0, -1))
-                          }
-                        }}
-                        disabled={(currentInputField === 'min' && minInput.length === 0) || (currentInputField === 'max' && maxInput.length === 0)}
-                        className="w-30 h-20 bg-slate-600 hover:bg-slate-500 disabled:bg-slate-800 disabled:cursor-not-allowed text-white text-lg font-semibold rounded-xl transition-all duration-200 flex items-center justify-center shadow-lg hover:shadow-xl"
-                      >
-                        ⌫
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Create Batch Modal */}
-        {showCreateBatchModal && (
-          <div 
-            className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-50"
-            onKeyDown={handleKeyPress}
-            tabIndex={-1}
-          >
-            <div className="bg-white/10 backdrop-blur-xl rounded-2xl px-8 py-4 max-w-5xl w-full mx-4 border border-white/20 shadow-2xl h-[450px]">
-
-              {/* Batch ID Display and Number Pad */}
-              <div className="grid grid-cols-2 gap-8 h-full">
-                {/* Left Column - Batch ID Display and Action Buttons */}
-                <div className="flex flex-col justify-center items-center space-y-6">
-                  <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 border-2 border-blue-500/30 rounded-2xl px-8 py-12 shadow-2xl">
-                    <div className="text-center">
-                      <div className="text-white text-2xl font-mono mb-2">
-                        B-{currentAccountId ? currentAccountId.replace('MEGG-', '') : 'XXXXXX'}-
-                      </div>
-                      <div className="flex justify-center space-x-3">
-                        {Array.from({ length: 4 }, (_, index) => (
-                          <div
-                            key={index}
-                            className={`w-12 h-16 rounded-lg border-2 flex items-center justify-center text-2xl font-mono font-bold transition-all duration-300 ${
-                              index < batchIdInput.length
-                                ? 'bg-blue-600 border-blue-400 text-white shadow-lg'
-                                : 'bg-slate-700/50 border-slate-500/50 text-slate-400'
-                            }`}
-                          >
-                            {index < batchIdInput.length ? batchIdInput[index] : '●'}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* Batch Status Notification */}
-                  {batchIdInput.length === 4 && (
-                    <div className="w-full">
-                      {isCheckingBatch ? (
-                        <div className="bg-blue-600/20 border border-blue-500/30 rounded-lg p-3 text-center">
-                          <div className="flex items-center justify-center gap-2">
-                            <Loader2 className="h-4 w-4 animate-spin text-blue-400" />
-                            <span className="text-blue-200 text-sm">Checking batch...</span>
-                          </div>
-                        </div>
-                      ) : existingBatch ? (
-                        <div className="bg-yellow-600/20 border border-yellow-500/30 rounded-lg p-3 text-center">
-                          <div className="flex items-center justify-center gap-2 mb-1">
-                            <AlertCircle className="h-4 w-4 text-yellow-400" />
-                            <span className="text-yellow-200 text-sm font-medium">Existing Batch Found</span>
-                          </div>
-                          <p className="text-yellow-300 text-xs">
-                            You are about to continue with an existing batch. Data will be added to this batch.
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="bg-green-600/20 border border-green-500/30 rounded-lg p-3 text-center">
-                          <div className="flex items-center justify-center gap-2 mb-1">
-                            <Package className="h-4 w-4 text-green-400" />
-                            <span className="text-green-200 text-sm font-medium">New Batch</span>
-                          </div>
-                          <p className="text-green-300 text-xs">
-                            This will create a new batch for processing eggs.
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Action Buttons */}
-                  <div className="flex gap-6">
-                    <button
-                      onClick={() => setShowCreateBatchModal(false)}
-                      className="bg-red-600 hover:bg-red-700 text-white px-10 py-5 rounded-xl text-xl font-bold transition-all duration-200 flex items-center justify-center gap-3 shadow-lg hover:shadow-xl"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={proceedWithBatch}
-                      disabled={batchIdInput.length !== 4 || isCheckingBatch}
-                      className={`px-10 py-5 rounded-xl text-xl font-bold transition-all duration-200 flex items-center justify-center gap-3 shadow-lg hover:shadow-xl ${
-                        batchIdInput.length === 4 && !isCheckingBatch
-                          ? 'bg-blue-600 hover:bg-blue-700 text-white'
-                          : 'bg-gray-500 cursor-not-allowed text-gray-300'
-                      }`}
-                    >
-                      {isCheckingBatch ? (
-                        <>
-                          <Loader2 className="h-5 w-5 animate-spin" />
-                          Checking...
-                        </>
-                      ) : (
-                        '✓ Enter'
-                      )}
-                    </button>
-                  </div>
-                  
-                  {batchIdError && (
-                    <p className="text-red-400 text-sm text-center">{batchIdError}</p>
-                  )}
-                </div>
-
-                {/* Right Column - Number Pad */}
-                <div className="flex flex-col justify-center">
-                  <div className="space-y-3">
-                    <div className="grid grid-cols-3 gap-3">
-                      {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
-                        <button
-                          key={num}
-                          data-number={num}
-                          onClick={() => handleBatchIdChange(batchIdInput + num.toString())}
-                          disabled={batchIdInput.length >= 4}
-                          className="w-30 h-20 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:cursor-not-allowed text-white text-2xl font-semibold rounded-xl transition-all duration-200 flex items-center justify-center shadow-lg hover:shadow-xl focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                        >
-                          {num}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="grid grid-cols-3 gap-3">
-                      <button
-                        onClick={() => handleBatchIdChange(batchIdInput + '0')}
-                        disabled={batchIdInput.length >= 4}
-                        className="w-30 h-20 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:cursor-not-allowed text-white text-2xl font-semibold rounded-xl transition-all duration-200 flex items-center justify-center shadow-lg hover:shadow-xl focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                      >
-                        0
-                      </button>
-                      <button
-                        onClick={() => handleBatchIdChange(batchIdInput.slice(0, -1))}
-                        disabled={batchIdInput.length === 0}
-                        className="w-30 h-20 bg-slate-600 hover:bg-slate-500 disabled:bg-slate-800 disabled:cursor-not-allowed text-white text-lg font-semibold rounded-xl transition-all duration-200 flex items-center justify-center shadow-lg hover:shadow-xl"
-                      >
-                        ⌫
-                      </button>
-                      <div className="w-30 h-20"></div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Toaster Notification */}
-        {toaster.show && (
-          <div className="fixed top-4 right-4 z-50 animate-in slide-in-from-right duration-300">
-            <div className={`px-6 py-4 rounded-lg shadow-lg border-l-4 flex items-center gap-3 min-w-[300px] ${
-              toaster.type === 'success' 
-                ? 'bg-green-500/20 text-green-300 border-green-500' 
-                : toaster.type === 'error'
-                ? 'bg-red-500/20 text-red-300 border-red-500'
-                : 'bg-blue-500/20 text-blue-300 border-blue-500'
-            }`}>
-              <div className={`w-2 h-2 rounded-full ${
-                toaster.type === 'success' 
-                  ? 'bg-green-400' 
-                  : toaster.type === 'error'
-                  ? 'bg-red-400'
-                  : 'bg-blue-400'
-              }`}></div>
-              <span className="font-medium">{toaster.message}</span>
-              <button
-                onClick={() => setToaster({ show: false, type: 'info', message: '' })}
-                className="ml-auto text-slate-400 hover:text-white transition-colors"
-              >
-                ✕
-              </button>
-            </div>
-          </div>
-        )}
+      <Toaster
+        toaster={toaster}
+        onSetToaster={setToaster}
+      />
       </div>
     )
   }

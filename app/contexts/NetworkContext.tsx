@@ -5,7 +5,7 @@
 
 import type React from "react"
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from "react"
-import { syncData } from "../libs/sync"
+// import { syncData } from "../libs/sync" // Removed during cleanup
 
 // ==========================================
 // Types
