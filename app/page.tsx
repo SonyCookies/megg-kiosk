@@ -14,7 +14,8 @@ import {
   Loader2,
   XCircle,
   User,
-  AlertCircle
+  AlertCircle,
+  Package
 } from "lucide-react"
 
 import { useInternetConnection, useWebSocket } from "./contexts/NetworkContext"
@@ -35,7 +36,7 @@ import { roboflowService } from "./services/roboflowService"
 
 export default function Home() {
   const [isLoaded, setIsLoaded] = useState(false)
-  const [activeTab, setActiveTab] = useState<'camera' | 'configuration' | 'account'>('camera')
+  const [activeTab, setActiveTab] = useState<'camera' | 'configuration' | 'account' | 'batch'>('camera')
   const [isProcessing, setIsProcessing] = useState(false)
   const [systemPhase, setSystemPhase] = useState<'idle' | 'getting_ready' | 'load_eggs' | 'ready_to_process' | 'processing'>('idle')
   const [processingStats, setProcessingStats] = useState({
@@ -88,6 +89,24 @@ export default function Home() {
   const [currentInputField, setCurrentInputField] = useState<'min' | 'max'>('min')
   const [isSavingRange, setIsSavingRange] = useState(false)
 
+  // Batch states
+  const [currentBatch, setCurrentBatch] = useState<any>(null)
+  const [batchStatus, setBatchStatus] = useState<'idle' | 'ready' | 'processing' | 'completed'>('idle')
+  const [batchStats, setBatchStats] = useState({
+    totalEggs: 0,
+    smallEggs: 0,
+    mediumEggs: 0,
+    largeEggs: 0,
+    goodEggs: 0,
+    dirtyEggs: 0,
+    badEggs: 0
+  })
+  const [showCreateBatchModal, setShowCreateBatchModal] = useState(false)
+  const [batchIdInput, setBatchIdInput] = useState('')
+  const [batchIdError, setBatchIdError] = useState('')
+  const [existingBatch, setExistingBatch] = useState<any>(null)
+  const [isCheckingBatch, setIsCheckingBatch] = useState(false)
+
   // Motor test progress modal
   const [showTestModal, setShowTestModal] = useState(false)
   const [testProgress, setTestProgress] = useState(0)
@@ -127,6 +146,7 @@ export default function Home() {
   // Camera functions
   const startCamera = useCallback(async () => {
     try {
+      console.log('Starting camera...')
       setIsCameraLoading(true)
       setCameraError("")
       
@@ -139,28 +159,41 @@ export default function Home() {
         audio: false
       })
 
+      console.log('Camera stream obtained:', {
+        active: stream.active,
+        videoTracks: stream.getVideoTracks().length,
+        videoTrack: stream.getVideoTracks()[0]?.getSettings()
+      })
 
       if (videoRef.current) {
+        console.log('Setting video srcObject...')
         videoRef.current.srcObject = stream
+        
         videoRef.current.onloadedmetadata = () => {
+          console.log('Video metadata loaded, attempting to play...')
           videoRef.current?.play().then(() => {
+            console.log('Video playing successfully')
             setIsCameraOn(true)
             setIsCameraLoading(false)
           }).catch((playError) => {
+            console.error('Error playing video:', playError)
             setCameraError(`Error playing video: ${playError.message}`)
             setIsCameraLoading(false)
           })
         }
         
         videoRef.current.onerror = (error) => {
+          console.error('Video element error:', error)
           setCameraError("Video element error occurred")
           setIsCameraLoading(false)
         }
       } else {
+        console.error('Video element not available')
         setCameraError("Video element not available")
         setIsCameraLoading(false)
       }
     } catch (error) {
+      console.error('Camera start error:', error)
       setCameraError(`Camera failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
       setIsCameraLoading(false)
     }
@@ -441,6 +474,151 @@ export default function Home() {
     }
   }
 
+  // Batch functions
+  const handleBatchIdChange = (value: string) => {
+    // Only allow digits and limit to 4 characters
+    const digitsOnly = value.replace(/\D/g, '').slice(0, 4)
+    setBatchIdInput(digitsOnly)
+    setBatchIdError('')
+    setExistingBatch(null) // Reset existing batch when input changes
+    
+    // Auto-check when 4 digits are entered
+    if (digitsOnly.length === 4 && currentAccountId) {
+      const accountDigits = currentAccountId.replace('MEGG-', '')
+      const batchId = `B-${accountDigits}-${digitsOnly}`
+      checkBatchExists(batchId)
+    }
+  }
+
+  const checkBatchExists = async (batchId: string) => {
+    try {
+      setIsCheckingBatch(true)
+      // In a real implementation, you would check against your database
+      // For now, we'll simulate checking with localStorage or a simple check
+      const existingBatches = JSON.parse(localStorage.getItem('megg-batches') || '[]')
+      const foundBatch = existingBatches.find((batch: any) => batch.id === batchId)
+      
+      if (foundBatch) {
+        setExistingBatch(foundBatch)
+        return foundBatch
+      } else {
+        setExistingBatch(null)
+        return null
+      }
+    } catch (error) {
+      console.error('Error checking batch existence:', error)
+      setExistingBatch(null)
+      return null
+    } finally {
+      setIsCheckingBatch(false)
+    }
+  }
+
+  const proceedWithBatch = async () => {
+    if (batchIdInput.length !== 4) {
+      setBatchIdError('Batch ID must be 4 digits')
+      return
+    }
+    
+    if (!currentAccountId) {
+      setBatchIdError('No account ID found. Please log in first.')
+      return
+    }
+    
+    // Extract account ID digits (remove MEGG- prefix)
+    const accountDigits = currentAccountId.replace('MEGG-', '')
+    const batchId = `B-${accountDigits}-${batchIdInput}`
+    
+    // Check if batch exists
+    const existingBatchData = await checkBatchExists(batchId)
+    
+    if (existingBatchData) {
+      // Load existing batch
+      setCurrentBatch(existingBatchData)
+      setBatchStatus(existingBatchData.status || 'ready')
+      setBatchStats(existingBatchData.stats || {
+        totalEggs: 0,
+        smallEggs: 0,
+        mediumEggs: 0,
+        largeEggs: 0,
+        goodEggs: 0,
+        dirtyEggs: 0,
+        badEggs: 0
+      })
+      console.log('Existing batch loaded:', existingBatchData)
+    } else {
+      // Create new batch
+      const newBatch = {
+        id: batchId,
+        accountId: currentAccountId,
+        uid: userData?.uid || null, // User UID from Firebase
+        name: `Batch ${batchId}`,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        stats: {
+          totalEggs: 0,
+          smallEggs: 0,
+          mediumEggs: 0,
+          largeEggs: 0,
+          goodEggs: 0,
+          dirtyEggs: 0,
+          badEggs: 0
+        }
+      }
+      
+      // Save to localStorage (in real app, save to database)
+      const existingBatches = JSON.parse(localStorage.getItem('megg-batches') || '[]')
+      existingBatches.push(newBatch)
+      localStorage.setItem('megg-batches', JSON.stringify(existingBatches))
+      
+      setCurrentBatch(newBatch)
+      setBatchStatus('ready')
+      setBatchStats(newBatch.stats)
+      console.log('New batch created:', newBatch)
+    }
+    
+    setShowCreateBatchModal(false)
+    setBatchIdInput('')
+    setBatchIdError('')
+    setExistingBatch(null)
+  }
+
+  const startBatchProcessing = () => {
+    if (currentBatch) {
+      setBatchStatus('processing')
+      console.log('Starting batch processing for:', currentBatch.id)
+    }
+  }
+
+  const stopBatchProcessing = () => {
+    if (currentBatch) {
+      setBatchStatus('completed')
+      console.log('Stopping batch processing for:', currentBatch.id)
+    }
+  }
+
+  const completeBatch = () => {
+    if (currentBatch) {
+      setBatchStatus('completed')
+      console.log('Batch completed:', currentBatch.id)
+    }
+  }
+
+  const resetBatch = () => {
+    setCurrentBatch(null)
+    setBatchStatus('idle')
+    setBatchStats({
+      totalEggs: 0,
+      smallEggs: 0,
+      mediumEggs: 0,
+      largeEggs: 0,
+      goodEggs: 0,
+      dirtyEggs: 0,
+      badEggs: 0
+    })
+    console.log('Batch reset')
+  }
+
   // Handle keyboard input for number pad
   const handleKeyPress = (event: React.KeyboardEvent) => {
     if (showPinModal) {
@@ -453,6 +631,17 @@ export default function Home() {
         handlePinSubmit()
       } else if (key === 'Escape') {
         setShowPinModal(false)
+      }
+    } else if (showCreateBatchModal) {
+      const key = event.key
+      if (key >= '0' && key <= '9' && batchIdInput.length < 4) {
+        handleBatchIdChange(batchIdInput + key)
+      } else if (key === 'Backspace' && batchIdInput.length > 0) {
+        handleBatchIdChange(batchIdInput.slice(0, -1))
+      } else if (key === 'Enter' && batchIdInput.length === 4) {
+        proceedWithBatch()
+      } else if (key === 'Escape') {
+        setShowCreateBatchModal(false)
       }
     }
   }
@@ -512,6 +701,7 @@ export default function Home() {
 
   // Auto-start camera and show preview when camera tab becomes active
   useEffect(() => {
+    console.log('Camera tab effect:', { activeTab, isCameraOn, showPreview })
     
     if (activeTab === 'camera') {
       setShowPreview(true)
@@ -519,7 +709,33 @@ export default function Home() {
       // Small delay to ensure video element is ready
       setTimeout(() => {
         if (!isCameraOn) {
-          startCamera()
+          console.log('Starting camera...')
+          // Check if video element exists before starting camera
+          if (videoRef.current) {
+            startCamera()
+          } else {
+            console.error('Video element not found, retrying...')
+            // Retry after a longer delay
+            setTimeout(() => {
+              if (videoRef.current) {
+                startCamera()
+              } else {
+                console.error('Video element still not found after retry')
+                setCameraError("Video element not available")
+              }
+            }, 500)
+          }
+        } else {
+          console.log('Camera already on, checking video element...')
+          if (videoRef.current) {
+            console.log('Video element exists:', {
+              srcObject: !!videoRef.current.srcObject,
+              readyState: videoRef.current.readyState,
+              paused: videoRef.current.paused,
+              videoWidth: videoRef.current.videoWidth,
+              videoHeight: videoRef.current.videoHeight
+            })
+          }
         }
       }, 100)
     } else {
@@ -563,17 +779,17 @@ export default function Home() {
           <div className="flex items-center justify-between">
             {/* Logo and Title - Professional */}
             <div className="flex items-center gap-3">
-              <Image
+                      <Image
                 src="/Logos/logowhite.png"
-                alt="MEGG Logo"
+                        alt="MEGG Logo"
                 width={isFullscreen ? 20 : 32}
                 height={isFullscreen ? 20 : 32}
-                className="object-contain"
-              />
+                  className="object-contain"
+                />
               <div>
                 <h1 className={`font-bold text-white tracking-wide ${isFullscreen ? 'text-sm' : 'text-lg'}`}>MEGG</h1>
-              </div>
-            </div>
+                  </div>
+                </div>
 
             {/* Minimal Status Indicators */}
             <div className={`flex items-center ${isFullscreen ? 'gap-2' : 'gap-3'}`}>
@@ -599,12 +815,13 @@ export default function Home() {
           <div className="flex space-x-1 h-full">
             {([
               { id: 'camera' as const, label: 'Camera', icon: Camera },
+              { id: 'batch' as const, label: 'Batch', icon: Package },
               { id: 'configuration' as const, label: 'Configuration', icon: Settings },
               { id: 'account' as const, label: 'Account', icon: User }
             ] as const).map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as 'camera' | 'configuration' | 'account')}
+                onClick={() => setActiveTab(tab.id as 'camera' | 'batch' | 'configuration' | 'account')}
                 className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-t-lg transition-all duration-200 ${
                   activeTab === tab.id
                     ? 'bg-blue-600 text-white shadow-lg border-b-2 border-blue-400'
@@ -627,29 +844,56 @@ export default function Home() {
           <div className={`h-full flex flex-col ${isFullscreen ? 'p-1' : 'p-3'}`}>
             <div className={`bg-slate-800/50 backdrop-blur-sm rounded-xl border border-slate-600/30 shadow-lg flex-1 w-full ${isFullscreen ? 'p-0 rounded-none border-0' : 'p-4'}`}>
               <div className={`bg-slate-900 rounded-lg border border-slate-700/50 relative overflow-hidden w-full ${isFullscreen ? 'h-full rounded-none border-0' : 'aspect-video h-64 sm:h-80 lg:h-96 mb-4'}`}>
-                {/* Video - shows in both normal and fullscreen modes */}
-                {showPreview && isCameraOn && (
-                  <video
-                    ref={videoRef}
-                    className="w-full h-full object-cover"
-                    autoPlay
-                    muted
-                    playsInline
-                    style={{ 
-                      transform: isMirrorMode ? "scaleX(-1)" : "none"
-                    }}
-                  />
-                )}
+                {/* Video - always rendered but hidden when camera is off */}
+                <video
+                  ref={videoRef}
+                  className={`w-full h-full object-cover ${isCameraOn ? 'block' : 'hidden'}`}
+                  autoPlay
+                  muted
+                  playsInline
+                  style={{ 
+                    transform: isMirrorMode ? "scaleX(-1)" : "none"
+                  }}
+                  onLoadedMetadata={() => {
+                    console.log('Video metadata loaded in render')
+                  }}
+                  onCanPlay={() => {
+                    console.log('Video can play')
+                  }}
+                  onPlay={() => {
+                    console.log('Video started playing')
+                  }}
+                  onError={(e) => {
+                    console.error('Video error in render:', e)
+                  }}
+                />
                 
-                {/* Video placeholder when not showing preview */}
-                {(!showPreview || !isCameraOn) && (
+                {/* Video placeholder when camera is not on and not loading */}
+                {!isCameraOn && !isCameraLoading && (
                   <div className="w-full h-full flex items-center justify-center">
                     <div className="text-center">
                       <Camera className="h-16 w-16 text-slate-500 mx-auto mb-4" />
                       <p className="text-slate-400 text-lg">Camera Feed</p>
-                      <p className="text-slate-500 text-sm mt-2">
-                        {!isCameraOn ? 'Camera not started' : 'Preview hidden'}
-                      </p>
+                      <p className="text-slate-500 text-sm mt-2">Camera not started</p>
+                      {/* Debug info */}
+                      <div className="mt-4 text-xs text-slate-600">
+                        <p>Debug: isCameraOn={isCameraOn.toString()}</p>
+                        <p>isCameraLoading={isCameraLoading.toString()}</p>
+                        <p>showPreview={showPreview.toString()}</p>
+                        <p>activeTab={activeTab}</p>
+                        {cameraError && <p className="text-red-400">Error: {cameraError}</p>}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Loading indicator when camera is starting */}
+                {isCameraLoading && (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <div className="text-center">
+                      <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                      <p className="text-slate-400 text-lg">Camera Feed</p>
+                      <p className="text-slate-500 text-sm mt-2">Starting camera...</p>
                     </div>
                   </div>
                 )}
@@ -685,20 +929,20 @@ export default function Home() {
                   {/* Capture Button */}
                   <button
                     onClick={captureImage}
-                    disabled={isCameraLoading || isCapturing || !showPreview || !isCameraOn}
+                    disabled={isCameraLoading || isCapturing || !isCameraOn}
                     className={`px-6 py-4 rounded-xl text-lg font-semibold transition-all duration-200 flex items-center justify-center gap-2 shadow-lg hover:shadow-xl ${
-                      isCapturing || !showPreview || !isCameraOn
+                      isCapturing || !isCameraOn
                         ? 'bg-gray-500 cursor-not-allowed' 
                         : 'bg-green-600 hover:bg-green-700 text-white'
                     }`}
                   >
-                    {isCapturing ? (
+                  {isCapturing ? (
                       <Loader2 className="w-6 h-6 animate-spin" />
-                    ) : (
+                  ) : (
                       <CameraIcon className="w-6 h-6" />
-                    )}
+                  )}
                     Capture
-                  </button>
+                </button>
                 </div>
 
                 
@@ -750,23 +994,144 @@ export default function Home() {
                           <p className="text-white/80 text-xs">{captureError}</p>
                         </div>
                       ) : null}
-                    </div>
-                  </div>
+                </div>
+              </div>
                 )}
                 
               </div>
               
+                    </div>
                   </div>
+                )}
+                
+        {activeTab === 'batch' && (
+          <div className="h-full overflow-y-auto p-3">
+            <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl p-4 border border-slate-600/30 shadow-lg">
+              <div className="space-y-6">
+                {/* Batch Setup Section */}
+                {!currentBatch && (
+                  <div className="space-y-4">
+                    <div className="bg-slate-700/30 rounded-lg border border-slate-600/30 p-4">
+                      <button
+                        onClick={() => {
+                          if (currentAccountId) {
+                            setShowCreateBatchModal(true)
+                          } else {
+                            setActiveTab('account')
+                          }
+                        }}
+                        className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-all duration-200 flex items-center justify-center gap-2"
+                      >
+                        <Package className="h-5 w-5" />
+                        Enter Batch
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Current Batch Status */}
+                {currentBatch && (
+                  <div className="space-y-3">
+                    <h3 className="text-lg font-semibold text-white">Current Batch</h3>
+                    <div className="bg-slate-700/30 rounded-lg border border-slate-600/30 p-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="bg-blue-600/20 border border-blue-500/30 rounded-lg px-4 py-3">
+                            <span className="text-slate-400 text-sm">Batch ID:</span>
+                            <p className="text-white font-mono font-bold text-lg">{currentBatch.id}</p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={resetBatch}
+                          className="bg-red-600 hover:bg-red-700 text-white px-4 py-3 rounded-lg font-medium transition-all duration-200 flex items-center gap-2"
+                        >
+                          <XCircle className="h-5 w-5" />
+                          Clear
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Batch Controls */}
+                {currentBatch && (
+                  <div className="space-y-3">
+                    <h3 className="text-lg font-semibold text-white">Batch Controls</h3>
+                    <div className="grid grid-cols-2 gap-3">
+                      {batchStatus === 'ready' && (
+                        <button
+                          onClick={startBatchProcessing}
+                          className="bg-green-600 hover:bg-green-700 text-white px-4 py-3 rounded-lg font-medium transition-all duration-200 flex items-center justify-center gap-2"
+                        >
+                          <Play className="h-5 w-5" />
+                          Start Processing
+                        </button>
+                      )}
+                      
+                      {batchStatus === 'processing' && (
+                        <button
+                          onClick={stopBatchProcessing}
+                          className="bg-red-600 hover:bg-red-700 text-white px-4 py-3 rounded-lg font-medium transition-all duration-200 flex items-center justify-center gap-2"
+                        >
+                          <Pause className="h-5 w-5" />
+                          Stop Processing
+                        </button>
+                      )}
+                      
+                      {batchStatus === 'completed' && (
+                        <button
+                          onClick={completeBatch}
+                          className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-3 rounded-lg font-medium transition-all duration-200 flex items-center justify-center gap-2"
+                        >
+                          <Activity className="h-5 w-5" />
+                          Complete Batch
+                        </button>
+                      )}
+                      
+                    </div>
+                  </div>
+                )}
+
+                {/* Batch Statistics */}
+                {currentBatch && (
+                  <div className="space-y-3">
+                    <h3 className="text-lg font-semibold text-white">Batch Statistics</h3>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="bg-slate-700/30 rounded-lg border border-slate-600/30 p-3 text-center">
+                        <div className="text-2xl font-bold text-blue-400">{batchStats.totalEggs}</div>
+                        <div className="text-sm text-slate-400">Total Eggs</div>
+                      </div>
+                      <div className="bg-slate-700/30 rounded-lg border border-slate-600/30 p-3 text-center">
+                        <div className="text-2xl font-bold text-yellow-400">{batchStats.dirtyEggs}</div>
+                        <div className="text-sm text-slate-400">Dirty Eggs</div>
+                      </div>
+                      <div className="bg-slate-700/30 rounded-lg border border-slate-600/30 p-3 text-center">
+                        <div className="text-2xl font-bold text-blue-400">{batchStats.smallEggs}</div>
+                        <div className="text-sm text-slate-400">Small Eggs</div>
+                      </div>
+                      <div className="bg-slate-700/30 rounded-lg border border-slate-600/30 p-3 text-center">
+                        <div className="text-2xl font-bold text-green-400">{batchStats.mediumEggs}</div>
+                        <div className="text-sm text-slate-400">Medium Eggs</div>
+                      </div>
+                      <div className="bg-slate-700/30 rounded-lg border border-slate-600/30 p-3 text-center">
+                        <div className="text-2xl font-bold text-orange-400">{batchStats.largeEggs}</div>
+                        <div className="text-sm text-slate-400">Large Eggs</div>
+                      </div>
+                      <div className="bg-slate-700/30 rounded-lg border border-slate-600/30 p-3 text-center">
+                        <div className="text-2xl font-bold text-emerald-400">{batchStats.goodEggs}</div>
+                        <div className="text-sm text-slate-400">Good Eggs</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         )}
-
 
         {activeTab === 'configuration' && (
           <div className="h-full overflow-y-auto p-3">
             <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl p-4 border border-slate-600/30 shadow-lg">
-              <h2 className="text-xl font-bold text-white mb-4">
-                Configuration
-              </h2>
 
               <div className="space-y-6">
 
@@ -787,7 +1152,7 @@ export default function Home() {
                          configSource === 'global' ? 'Default' : 'Local'}
                   </div>
                 </div>
-              </div>
+                  </div>
                   
                   <div className="grid grid-cols-3 gap-3">
                     {/* Small Eggs */}
@@ -795,12 +1160,12 @@ export default function Home() {
                       <div className="flex items-center gap-2">
                         <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
                           <span className="text-white font-bold text-xs">S</span>
-            </div>
+                </div>
                         <div>
                           <span className="text-slate-300 text-sm font-medium">Small</span>
                           <p className="text-slate-400 text-xs">{eggRanges.small.min.toFixed(2)}-{eggRanges.small.max.toFixed(2)}g</p>
-          </div>
-                  </div>
+                </div>
+              </div>
                       <button
                         onClick={() => handleRangeEdit('small')}
                         className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-4 rounded-lg text-lg font-medium transition-all duration-200"
@@ -814,11 +1179,11 @@ export default function Home() {
                       <div className="flex items-center gap-2">
                         <div className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center">
                           <span className="text-white font-bold text-xs">M</span>
-                  </div>
+              </div>
                         <div>
                           <span className="text-slate-300 text-sm font-medium">Medium</span>
                           <p className="text-slate-400 text-xs">{eggRanges.medium.min.toFixed(2)}-{eggRanges.medium.max.toFixed(2)}g</p>
-                </div>
+            </div>
                 </div>
                       <button
                         onClick={() => handleRangeEdit('medium')}
@@ -826,27 +1191,27 @@ export default function Home() {
                       >
                         Edit
                       </button>
-              </div>
+          </div>
 
                     {/* Large Eggs */}
                     <div className="flex items-center justify-between p-2 bg-slate-700/30 rounded border border-slate-600/30">
                       <div className="flex items-center gap-2">
                         <div className="w-6 h-6 bg-orange-500 rounded-full flex items-center justify-center">
                           <span className="text-white font-bold text-xs">L</span>
-                </div>
+                  </div>
                         <div>
                           <span className="text-slate-300 text-sm font-medium">Large</span>
                           <p className="text-slate-400 text-xs">{eggRanges.large.min.toFixed(2)}-{eggRanges.large.max.toFixed(2)}g</p>
-              </div>
-                      </div>
+                  </div>
+                  </div>
                       <button
                         onClick={() => handleRangeEdit('large')}
                         className="bg-orange-600 hover:bg-orange-700 text-white px-6 py-4 rounded-lg text-lg font-medium transition-all duration-200"
                       >
                         Edit
                       </button>
-            </div>
-          </div>
+                  </div>
+                </div>
 
                   {/* Gap Warning */}
                   {showGapWarning && rangeValidation && rangeValidation.hasGaps && (
@@ -859,7 +1224,7 @@ export default function Home() {
                             {rangeValidation.gaps.map((gap, index) => (
                               <div key={index}>
                                 Gap between {gap.between}: {gap.from.toFixed(2)}g to {gap.to.toFixed(2)}g
-                  </div>
+              </div>
                             ))}
                   </div>
                           <div className="text-xs text-yellow-400 mt-2">
@@ -872,9 +1237,9 @@ export default function Home() {
                         >
                           <XCircle className="h-4 w-4" />
                         </button>
-                </div>
-              </div>
-                  )}
+            </div>
+          </div>
+        )}
 
                   {/* Reset to Defaults Button */}
                   {isCustomized && (
@@ -895,26 +1260,25 @@ export default function Home() {
                   )}
                 </div>
 
+                </div>
               </div>
             </div>
-          </div>
         )}
 
         {activeTab === 'account' && (
           <div className="h-full overflow-y-auto p-3">
             <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl p-4 border border-slate-600/30 shadow-lg">
-
+              
               <div className="space-y-6">
                 {/* Account Info Display - Only show when logged in */}
                 {currentAccountId && (
-                  <div className="space-y-3">
-                    <h3 className="text-lg font-semibold text-white">Account Information</h3>
+              <div className="space-y-3">
                     <div className="bg-gradient-to-r from-blue-900/30 to-purple-900/30 rounded-xl p-6 border border-blue-500/30 shadow-lg">
                       {isLoadingUser ? (
                         <div className="flex items-center justify-center gap-3">
                           <Loader2 className="h-6 w-6 text-blue-400 animate-spin" />
                           <span className="text-white">Loading user data...</span>
-                        </div>
+                </div>
                       ) : userData ? (
                         <div className="flex items-center justify-between">
                           {/* Left side - User Name */}
@@ -932,8 +1296,8 @@ export default function Home() {
                               <p className="text-slate-500 text-xs">
                                 {userData.provider === 'google' ? 'Google Account' : 'Email Account'}
                               </p>
+                </div>
               </div>
-            </div>
 
                           {/* Right side - Account ID */}
                           <div className="text-right">
@@ -959,12 +1323,6 @@ export default function Home() {
                 <div className="space-y-3">
                   <div className="space-y-4">
                     <div className="p-4 bg-slate-700/30 rounded-lg border border-slate-600/30">
-                      <p className="text-slate-300 mb-4">
-                        {currentAccountId 
-                          ? 'Enter a new 6-digit Account ID to change your current account.'
-                          : 'Enter your 6-digit Account ID to access machine functionality. Your machine ID will be formatted as MEGG-XXXXXX.'
-                        }
-                      </p>
                       <div className="flex gap-3">
                         <button
                           onClick={handleInputId}
@@ -972,7 +1330,7 @@ export default function Home() {
                         >
                           <User className="h-5 w-5" />
                           {currentAccountId ? 'Change Account ID' : 'Enter Account ID'}
-                      </button>
+                        </button>
                         {currentAccountId && (
                           <button
                             onClick={clearAccountId}
@@ -980,12 +1338,12 @@ export default function Home() {
                           >
                             <XCircle className="h-5 w-5" />
                             Clear
-                      </button>
+                          </button>
                         )}
                       </div>
-            </div>
-            </div>
-            </div>
+                    </div>
+                  </div>
+                </div>
             </div>
           </div>
           </div>
@@ -1429,6 +1787,148 @@ export default function Home() {
                       >
                         ⌫
                       </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Create Batch Modal */}
+        {showCreateBatchModal && (
+          <div 
+            className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-50"
+            onKeyDown={handleKeyPress}
+            tabIndex={-1}
+          >
+            <div className="bg-white/10 backdrop-blur-xl rounded-2xl px-8 py-4 max-w-5xl w-full mx-4 border border-white/20 shadow-2xl h-[450px]">
+
+              {/* Batch ID Display and Number Pad */}
+              <div className="grid grid-cols-2 gap-8 h-full">
+                {/* Left Column - Batch ID Display and Action Buttons */}
+                <div className="flex flex-col justify-center items-center space-y-6">
+                  <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 border-2 border-blue-500/30 rounded-2xl px-8 py-12 shadow-2xl">
+                    <div className="text-center">
+                      <div className="text-white text-2xl font-mono mb-2">
+                        B-{currentAccountId ? currentAccountId.replace('MEGG-', '') : 'XXXXXX'}-
+                      </div>
+                      <div className="flex justify-center space-x-3">
+                        {Array.from({ length: 4 }, (_, index) => (
+                          <div
+                            key={index}
+                            className={`w-12 h-16 rounded-lg border-2 flex items-center justify-center text-2xl font-mono font-bold transition-all duration-300 ${
+                              index < batchIdInput.length
+                                ? 'bg-blue-600 border-blue-400 text-white shadow-lg'
+                                : 'bg-slate-700/50 border-slate-500/50 text-slate-400'
+                            }`}
+                          >
+                            {index < batchIdInput.length ? batchIdInput[index] : '●'}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Batch Status Notification */}
+                  {batchIdInput.length === 4 && (
+                    <div className="w-full">
+                      {isCheckingBatch ? (
+                        <div className="bg-blue-600/20 border border-blue-500/30 rounded-lg p-3 text-center">
+                          <div className="flex items-center justify-center gap-2">
+                            <Loader2 className="h-4 w-4 animate-spin text-blue-400" />
+                            <span className="text-blue-200 text-sm">Checking batch...</span>
+                          </div>
+                        </div>
+                      ) : existingBatch ? (
+                        <div className="bg-yellow-600/20 border border-yellow-500/30 rounded-lg p-3 text-center">
+                          <div className="flex items-center justify-center gap-2 mb-1">
+                            <AlertCircle className="h-4 w-4 text-yellow-400" />
+                            <span className="text-yellow-200 text-sm font-medium">Existing Batch Found</span>
+                          </div>
+                          <p className="text-yellow-300 text-xs">
+                            You are about to continue with an existing batch. Data will be added to this batch.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="bg-green-600/20 border border-green-500/30 rounded-lg p-3 text-center">
+                          <div className="flex items-center justify-center gap-2 mb-1">
+                            <Package className="h-4 w-4 text-green-400" />
+                            <span className="text-green-200 text-sm font-medium">New Batch</span>
+                          </div>
+                          <p className="text-green-300 text-xs">
+                            This will create a new batch for processing eggs.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Action Buttons */}
+                  <div className="flex gap-6">
+                    <button
+                      onClick={() => setShowCreateBatchModal(false)}
+                      className="bg-red-600 hover:bg-red-700 text-white px-10 py-5 rounded-xl text-xl font-bold transition-all duration-200 flex items-center justify-center gap-3 shadow-lg hover:shadow-xl"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={proceedWithBatch}
+                      disabled={batchIdInput.length !== 4 || isCheckingBatch}
+                      className={`px-10 py-5 rounded-xl text-xl font-bold transition-all duration-200 flex items-center justify-center gap-3 shadow-lg hover:shadow-xl ${
+                        batchIdInput.length === 4 && !isCheckingBatch
+                          ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                          : 'bg-gray-500 cursor-not-allowed text-gray-300'
+                      }`}
+                    >
+                      {isCheckingBatch ? (
+                        <>
+                          <Loader2 className="h-5 w-5 animate-spin" />
+                          Checking...
+                        </>
+                      ) : (
+                        '✓ Enter'
+                      )}
+                    </button>
+                  </div>
+                  
+                  {batchIdError && (
+                    <p className="text-red-400 text-sm text-center">{batchIdError}</p>
+                  )}
+                </div>
+
+                {/* Right Column - Number Pad */}
+                <div className="flex flex-col justify-center">
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-3 gap-3">
+                      {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
+                        <button
+                          key={num}
+                          data-number={num}
+                          onClick={() => handleBatchIdChange(batchIdInput + num.toString())}
+                          disabled={batchIdInput.length >= 4}
+                          className="w-30 h-20 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:cursor-not-allowed text-white text-2xl font-semibold rounded-xl transition-all duration-200 flex items-center justify-center shadow-lg hover:shadow-xl focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                        >
+                          {num}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-3 gap-3">
+                      <button
+                        onClick={() => handleBatchIdChange(batchIdInput + '0')}
+                        disabled={batchIdInput.length >= 4}
+                        className="w-30 h-20 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:cursor-not-allowed text-white text-2xl font-semibold rounded-xl transition-all duration-200 flex items-center justify-center shadow-lg hover:shadow-xl focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                      >
+                        0
+                      </button>
+                      <button
+                        onClick={() => handleBatchIdChange(batchIdInput.slice(0, -1))}
+                        disabled={batchIdInput.length === 0}
+                        className="w-30 h-20 bg-slate-600 hover:bg-slate-500 disabled:bg-slate-800 disabled:cursor-not-allowed text-white text-lg font-semibold rounded-xl transition-all duration-200 flex items-center justify-center shadow-lg hover:shadow-xl"
+                      >
+                        ⌫
+                      </button>
+                      <div className="w-30 h-20"></div>
                     </div>
                   </div>
                 </div>
