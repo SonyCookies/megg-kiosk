@@ -15,7 +15,8 @@ import {
   XCircle,
   User,
   AlertCircle,
-  Package
+  Package,
+  Target
 } from "lucide-react"
 
 import { useInternetConnection, useWebSocket } from "./contexts/NetworkContext"
@@ -36,7 +37,7 @@ import { roboflowService } from "./services/roboflowService"
 
 export default function Home() {
   const [isLoaded, setIsLoaded] = useState(false)
-  const [activeTab, setActiveTab] = useState<'camera' | 'configuration' | 'account' | 'batch'>('camera')
+  const [activeTab, setActiveTab] = useState<'camera' | 'configuration' | 'account' | 'batch' | 'calibration'>('camera')
   const [isProcessing, setIsProcessing] = useState(false)
   const [systemPhase, setSystemPhase] = useState<'idle' | 'getting_ready' | 'load_eggs' | 'ready_to_process' | 'processing'>('idle')
   const [processingStats, setProcessingStats] = useState({
@@ -106,6 +107,17 @@ export default function Home() {
   const [batchIdError, setBatchIdError] = useState('')
   const [existingBatch, setExistingBatch] = useState<any>(null)
   const [isCheckingBatch, setIsCheckingBatch] = useState(false)
+  const [activeStatsView, setActiveStatsView] = useState<'overview' | 'size' | 'quality'>('overview')
+  const [isCalibratingUno, setIsCalibratingUno] = useState(false)
+  const [isCalibratingHX711, setIsCalibratingHX711] = useState(false)
+  const [isCalibratingNema23, setIsCalibratingNema23] = useState(false)
+  const [isCalibratingSG90, setIsCalibratingSG90] = useState(false)
+  const [isCalibratingMG996R, setIsCalibratingMG996R] = useState(false)
+  const [toaster, setToaster] = useState<{
+    show: boolean
+    type: 'success' | 'error' | 'info'
+    message: string
+  }>({ show: false, type: 'info', message: '' })
 
   // Motor test progress modal
   const [showTestModal, setShowTestModal] = useState(false)
@@ -482,15 +494,22 @@ export default function Home() {
     setBatchIdError('')
     setExistingBatch(null) // Reset existing batch when input changes
     
-    // Auto-check when 4 digits are entered
+    // Auto-check when 4 digits are entered and account ID exists
     if (digitsOnly.length === 4 && currentAccountId) {
       const accountDigits = currentAccountId.replace('MEGG-', '')
       const batchId = `B-${accountDigits}-${digitsOnly}`
       checkBatchExists(batchId)
+    } else if (digitsOnly.length === 4 && !currentAccountId) {
+      setBatchIdError('Account ID required to check batch')
     }
   }
 
   const checkBatchExists = async (batchId: string) => {
+    if (!currentAccountId) {
+      setBatchIdError('Account ID required to check batch')
+      return null
+    }
+    
     try {
       setIsCheckingBatch(true)
       // In a real implementation, you would check against your database
@@ -515,13 +534,15 @@ export default function Home() {
   }
 
   const proceedWithBatch = async () => {
-    if (batchIdInput.length !== 4) {
-      setBatchIdError('Batch ID must be 4 digits')
+    if (!currentAccountId) {
+      setBatchIdError('No account ID found. Please log in first.')
+      setShowCreateBatchModal(false)
+      setActiveTab('account')
       return
     }
     
-    if (!currentAccountId) {
-      setBatchIdError('No account ID found. Please log in first.')
+    if (batchIdInput.length !== 4) {
+      setBatchIdError('Batch ID must be 4 digits')
       return
     }
     
@@ -616,7 +637,119 @@ export default function Home() {
       dirtyEggs: 0,
       badEggs: 0
     })
+    setActiveStatsView('overview')
     console.log('Batch reset')
+  }
+
+  const toggleStatsView = (view: 'size' | 'quality') => {
+    if (activeStatsView === view) {
+      setActiveStatsView('overview')
+    } else {
+      setActiveStatsView(view)
+    }
+  }
+
+  const showToaster = (type: 'success' | 'error' | 'info', message: string) => {
+    setToaster({ show: true, type, message })
+    setTimeout(() => {
+      setToaster({ show: false, type: 'info', message: '' })
+    }, 4000)
+  }
+
+  const handleUnoCalibration = async () => {
+    setIsCalibratingUno(true)
+    
+    try {
+      await new Promise(resolve => setTimeout(resolve, 3000))
+      const isSuccess = Math.random() > 0.1
+      
+      if (isSuccess) {
+        showToaster('success', 'UNO calibration completed successfully!')
+      } else {
+        showToaster('error', 'UNO calibration failed. Please check connections.')
+      }
+    } catch (error) {
+      console.error('UNO calibration error:', error)
+      showToaster('error', 'UNO calibration error occurred.')
+    } finally {
+      setIsCalibratingUno(false)
+    }
+  }
+
+  const handleHX711Calibration = async () => {
+    setIsCalibratingHX711(true)
+    
+    try {
+      await new Promise(resolve => setTimeout(resolve, 2500))
+      const isSuccess = Math.random() > 0.15
+      
+      if (isSuccess) {
+        showToaster('success', 'HX711 load cell calibration completed successfully!')
+      } else {
+        showToaster('error', 'HX711 calibration failed. Check load cell connections.')
+      }
+    } catch (error) {
+      showToaster('error', 'HX711 calibration error occurred.')
+    } finally {
+      setIsCalibratingHX711(false)
+    }
+  }
+
+  const handleNema23Calibration = async () => {
+    setIsCalibratingNema23(true)
+    
+    try {
+      await new Promise(resolve => setTimeout(resolve, 4000))
+      const isSuccess = Math.random() > 0.08
+      
+      if (isSuccess) {
+        showToaster('success', 'NEMA 23 stepper motor calibration completed successfully!')
+      } else {
+        showToaster('error', 'NEMA 23 calibration failed. Check motor connections.')
+      }
+    } catch (error) {
+      showToaster('error', 'NEMA 23 calibration error occurred.')
+    } finally {
+      setIsCalibratingNema23(false)
+    }
+  }
+
+  const handleSG90Calibration = async () => {
+    setIsCalibratingSG90(true)
+    
+    try {
+      await new Promise(resolve => setTimeout(resolve, 2000))
+      const isSuccess = Math.random() > 0.12
+      
+      if (isSuccess) {
+        showToaster('success', 'SG90 servo motor calibration completed successfully!')
+      } else {
+        showToaster('error', 'SG90 calibration failed. Check servo connections.')
+      }
+    } catch (error) {
+      showToaster('error', 'SG90 calibration error occurred.')
+    } finally {
+      setIsCalibratingSG90(false)
+    }
+  }
+
+  const handleMG996RCalibration = async () => {
+    setIsCalibratingMG996R(true)
+    
+    try {
+      await new Promise(resolve => setTimeout(resolve, 3500))
+      const isSuccess = Math.random() > 0.1
+      
+      if (isSuccess) {
+        showToaster('success', 'MG996R servo motor calibration completed successfully!')
+      } else {
+        showToaster('error', 'MG996R calibration failed. Check servo connections.')
+      }
+    } catch (error) {
+      showToaster('error', 'MG996R calibration error occurred.')
+    } finally {
+      setIsCalibratingMG996R(false)
+    }
   }
 
   // Handle keyboard input for number pad
@@ -712,7 +845,7 @@ export default function Home() {
           console.log('Starting camera...')
           // Check if video element exists before starting camera
           if (videoRef.current) {
-            startCamera()
+          startCamera()
           } else {
             console.error('Video element not found, retrying...')
             // Retry after a longer delay
@@ -817,11 +950,12 @@ export default function Home() {
               { id: 'camera' as const, label: 'Camera', icon: Camera },
               { id: 'batch' as const, label: 'Batch', icon: Package },
               { id: 'configuration' as const, label: 'Configuration', icon: Settings },
+              { id: 'calibration' as const, label: 'Calibration', icon: Target },
               { id: 'account' as const, label: 'Account', icon: User }
             ] as const).map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as 'camera' | 'batch' | 'configuration' | 'account')}
+                onClick={() => setActiveTab(tab.id as 'camera' | 'batch' | 'configuration' | 'calibration' | 'account')}
                 className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-t-lg transition-all duration-200 ${
                   activeTab === tab.id
                     ? 'bg-blue-600 text-white shadow-lg border-b-2 border-blue-400'
@@ -927,15 +1061,15 @@ export default function Home() {
                   </button>
                   
                   {/* Capture Button */}
-                  <button
-                    onClick={captureImage}
+                <button
+                  onClick={captureImage}
                     disabled={isCameraLoading || isCapturing || !isCameraOn}
                     className={`px-6 py-4 rounded-xl text-lg font-semibold transition-all duration-200 flex items-center justify-center gap-2 shadow-lg hover:shadow-xl ${
                       isCapturing || !isCameraOn
-                        ? 'bg-gray-500 cursor-not-allowed' 
-                        : 'bg-green-600 hover:bg-green-700 text-white'
-                    }`}
-                  >
+                      ? 'bg-gray-500 cursor-not-allowed' 
+                      : 'bg-green-600 hover:bg-green-700 text-white'
+                  }`}
+                >
                   {isCapturing ? (
                       <Loader2 className="w-6 h-6 animate-spin" />
                   ) : (
@@ -1004,6 +1138,114 @@ export default function Home() {
                   </div>
                 )}
                 
+        {activeTab === 'calibration' && (
+          <div className="h-full overflow-y-auto p-3">
+            <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl p-4 border border-slate-600/30 shadow-lg">
+              <div className="grid grid-cols-3 gap-3">
+                {/* UNO Button */}
+                <button
+                  onClick={handleUnoCalibration}
+                  disabled={isCalibratingUno}
+                  className={`px-4 py-6 rounded-lg font-semibold text-base transition-all duration-200 flex items-center justify-center gap-2 border border-slate-500/30 ${
+                    isCalibratingUno
+                      ? 'bg-gray-600 cursor-not-allowed text-gray-300'
+                      : 'bg-slate-700/50 hover:bg-blue-600/20 text-white shadow-lg hover:shadow-xl transform hover:scale-[1.02]'
+                  }`}
+                >
+                  {isCalibratingUno ? (
+                    <>
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                      <span>UNO</span>
+                    </>
+                  ) : (
+                    <span>UNO</span>
+                  )}
+                </button>
+
+                {/* HX711 Button */}
+                <button
+                  onClick={handleHX711Calibration}
+                  disabled={isCalibratingHX711}
+                  className={`px-4 py-6 rounded-lg font-semibold text-base transition-all duration-200 flex items-center justify-center gap-2 border border-slate-500/30 ${
+                    isCalibratingHX711
+                      ? 'bg-gray-600 cursor-not-allowed text-gray-300'
+                      : 'bg-slate-700/50 hover:bg-green-600/20 text-white shadow-lg hover:shadow-xl transform hover:scale-[1.02]'
+                  }`}
+                >
+                  {isCalibratingHX711 ? (
+                    <>
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                      <span>HX711</span>
+                    </>
+                  ) : (
+                    <span>HX711</span>
+                  )}
+                </button>
+
+                {/* NEMA 23 Button */}
+                <button
+                  onClick={handleNema23Calibration}
+                  disabled={isCalibratingNema23}
+                  className={`px-4 py-6 rounded-lg font-semibold text-base transition-all duration-200 flex items-center justify-center gap-2 border border-slate-500/30 ${
+                    isCalibratingNema23
+                      ? 'bg-gray-600 cursor-not-allowed text-gray-300'
+                      : 'bg-slate-700/50 hover:bg-purple-600/20 text-white shadow-lg hover:shadow-xl transform hover:scale-[1.02]'
+                  }`}
+                >
+                  {isCalibratingNema23 ? (
+                    <>
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                      <span>NEMA 23</span>
+                    </>
+                  ) : (
+                    <span>NEMA 23</span>
+                  )}
+                </button>
+
+                {/* SG90 Button */}
+                <button
+                  onClick={handleSG90Calibration}
+                  disabled={isCalibratingSG90}
+                  className={`px-4 py-6 rounded-lg font-semibold text-base transition-all duration-200 flex items-center justify-center gap-2 border border-slate-500/30 ${
+                    isCalibratingSG90
+                      ? 'bg-gray-600 cursor-not-allowed text-gray-300'
+                      : 'bg-slate-700/50 hover:bg-orange-600/20 text-white shadow-lg hover:shadow-xl transform hover:scale-[1.02]'
+                  }`}
+                >
+                  {isCalibratingSG90 ? (
+                    <>
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                      <span>SG90</span>
+                    </>
+                  ) : (
+                    <span>SG90</span>
+                  )}
+                </button>
+
+                {/* MG996R Button */}
+                <button
+                  onClick={handleMG996RCalibration}
+                  disabled={isCalibratingMG996R}
+                  className={`px-4 py-6 rounded-lg font-semibold text-base transition-all duration-200 flex items-center justify-center gap-2 border border-slate-500/30 ${
+                    isCalibratingMG996R
+                      ? 'bg-gray-600 cursor-not-allowed text-gray-300'
+                      : 'bg-slate-700/50 hover:bg-red-600/20 text-white shadow-lg hover:shadow-xl transform hover:scale-[1.02]'
+                  }`}
+                >
+                  {isCalibratingMG996R ? (
+                    <>
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                      <span>MG996R</span>
+                    </>
+                  ) : (
+                    <span>MG996R</span>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+                
         {activeTab === 'batch' && (
           <div className="h-full overflow-y-auto p-3">
             <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl p-4 border border-slate-600/30 shadow-lg">
@@ -1011,21 +1253,33 @@ export default function Home() {
                 {/* Batch Setup Section */}
                 {!currentBatch && (
                   <div className="space-y-4">
-                    <div className="bg-slate-700/30 rounded-lg border border-slate-600/30 p-4">
-                      <button
-                        onClick={() => {
-                          if (currentAccountId) {
-                            setShowCreateBatchModal(true)
-                          } else {
-                            setActiveTab('account')
-                          }
-                        }}
-                        className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-all duration-200 flex items-center justify-center gap-2"
-                      >
-                        <Package className="h-5 w-5" />
-                        Enter Batch
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => {
+                        if (currentAccountId) {
+                          setShowCreateBatchModal(true)
+                        } else {
+                          setActiveTab('account')
+                        }
+                      }}
+                      className={`group w-full border rounded-lg p-4 transition-all duration-200 flex flex-col items-center justify-center text-center ${
+                        currentAccountId 
+                          ? 'bg-blue-600/20 hover:bg-blue-600/30 border-blue-500/30' 
+                          : 'bg-red-600/20 hover:bg-red-600/30 border-red-500/30'
+                      }`}
+                    >
+                      <span className="text-slate-400 text-sm mb-1">
+                        {currentAccountId ? 'Create New Batch' : 'Account Required'}
+                    </span>
+                      <p className="text-white font-mono font-bold text-xl">Enter Batch</p>
+                      <span className={`text-xs mt-1 opacity-0 group-hover:opacity-100 transition-opacity ${
+                        currentAccountId ? 'text-blue-300' : 'text-red-300'
+                      }`}>
+                        {currentAccountId 
+                          ? 'Click to create or enter existing batch' 
+                          : 'Click to go to Account tab first'
+                        }
+                    </span>
+                    </button>
                   </div>
                 )}
 
@@ -1033,96 +1287,111 @@ export default function Home() {
                 {currentBatch && (
                   <div className="space-y-3">
                     <h3 className="text-lg font-semibold text-white">Current Batch</h3>
-                    <div className="bg-slate-700/30 rounded-lg border border-slate-600/30 p-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className="bg-blue-600/20 border border-blue-500/30 rounded-lg px-4 py-3">
-                            <span className="text-slate-400 text-sm">Batch ID:</span>
-                            <p className="text-white font-mono font-bold text-lg">{currentBatch.id}</p>
-                          </div>
-                        </div>
-                        <button
-                          onClick={resetBatch}
-                          className="bg-red-600 hover:bg-red-700 text-white px-4 py-3 rounded-lg font-medium transition-all duration-200 flex items-center gap-2"
-                        >
-                          <XCircle className="h-5 w-5" />
-                          Clear
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => setShowCreateBatchModal(true)}
+                        className="group flex-1 bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 rounded-lg p-4 transition-all duration-200 flex flex-col items-start justify-center text-left"
+                      >
+                        <span className="text-slate-400 text-sm mb-1">Batch ID:</span>
+                        <p className="text-white font-mono font-bold text-xl">{currentBatch.id}</p>
+                        <span className="text-blue-300 text-xs mt-1 opacity-0 group-hover:opacity-100 transition-opacity">Click to change batch</span>
+                      </button>
+                      <button
+                        onClick={resetBatch}
+                        className="bg-red-600 hover:bg-red-700 text-white px-6 py-4 rounded-lg font-medium transition-all duration-200 flex items-center gap-2"
+                      >
+                        <XCircle className="h-5 w-5" />
+                        Clear
+                      </button>
+            </div>
+          </div>
+        )}
 
-                {/* Batch Controls */}
-                {currentBatch && (
-                  <div className="space-y-3">
-                    <h3 className="text-lg font-semibold text-white">Batch Controls</h3>
-                    <div className="grid grid-cols-2 gap-3">
-                      {batchStatus === 'ready' && (
-                        <button
-                          onClick={startBatchProcessing}
-                          className="bg-green-600 hover:bg-green-700 text-white px-4 py-3 rounded-lg font-medium transition-all duration-200 flex items-center justify-center gap-2"
-                        >
-                          <Play className="h-5 w-5" />
-                          Start Processing
-                        </button>
-                      )}
-                      
-                      {batchStatus === 'processing' && (
-                        <button
-                          onClick={stopBatchProcessing}
-                          className="bg-red-600 hover:bg-red-700 text-white px-4 py-3 rounded-lg font-medium transition-all duration-200 flex items-center justify-center gap-2"
-                        >
-                          <Pause className="h-5 w-5" />
-                          Stop Processing
-                        </button>
-                      )}
-                      
-                      {batchStatus === 'completed' && (
-                        <button
-                          onClick={completeBatch}
-                          className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-3 rounded-lg font-medium transition-all duration-200 flex items-center justify-center gap-2"
-                        >
-                          <Activity className="h-5 w-5" />
-                          Complete Batch
-                        </button>
-                      )}
-                      
-                    </div>
-                  </div>
-                )}
 
                 {/* Batch Statistics */}
                 {currentBatch && (
                   <div className="space-y-3">
                     <h3 className="text-lg font-semibold text-white">Batch Statistics</h3>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-slate-700/30 rounded-lg border border-slate-600/30 p-3 text-center">
-                        <div className="text-2xl font-bold text-blue-400">{batchStats.totalEggs}</div>
-                        <div className="text-sm text-slate-400">Total Eggs</div>
-                      </div>
-                      <div className="bg-slate-700/30 rounded-lg border border-slate-600/30 p-3 text-center">
-                        <div className="text-2xl font-bold text-yellow-400">{batchStats.dirtyEggs}</div>
-                        <div className="text-sm text-slate-400">Dirty Eggs</div>
-                      </div>
-                      <div className="bg-slate-700/30 rounded-lg border border-slate-600/30 p-3 text-center">
-                        <div className="text-2xl font-bold text-blue-400">{batchStats.smallEggs}</div>
-                        <div className="text-sm text-slate-400">Small Eggs</div>
-                      </div>
-                      <div className="bg-slate-700/30 rounded-lg border border-slate-600/30 p-3 text-center">
-                        <div className="text-2xl font-bold text-green-400">{batchStats.mediumEggs}</div>
-                        <div className="text-sm text-slate-400">Medium Eggs</div>
-                      </div>
-                      <div className="bg-slate-700/30 rounded-lg border border-slate-600/30 p-3 text-center">
-                        <div className="text-2xl font-bold text-orange-400">{batchStats.largeEggs}</div>
-                        <div className="text-sm text-slate-400">Large Eggs</div>
-                      </div>
-                      <div className="bg-slate-700/30 rounded-lg border border-slate-600/30 p-3 text-center">
-                        <div className="text-2xl font-bold text-emerald-400">{batchStats.goodEggs}</div>
-                        <div className="text-sm text-slate-400">Good Eggs</div>
-                      </div>
-                    </div>
+                    
+                    {/* Overview View - Total + Buttons */}
+                    {activeStatsView === 'overview' && (
+                      <div className="grid grid-cols-3 gap-3">
+                        {/* Total Display */}
+                        <div className="bg-slate-700/30 rounded-lg border border-slate-600/30 p-4 text-center">
+                          <div className="text-2xl font-bold text-blue-400 mb-1">{batchStats.totalEggs}</div>
+                          <div className="text-slate-400 text-xs">Total</div>
                   </div>
+              
+                        {/* Size Button */}
+                        <button
+                          onClick={() => toggleStatsView('size')}
+                          className="bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 rounded-lg p-4 transition-all duration-200 flex flex-col items-center justify-center text-center"
+                        >
+                          <div className="text-lg font-bold text-blue-400 mb-1">Size</div>
+                          <div className="text-xs text-slate-400">Small • Medium • Large</div>
+                        </button>
+                        
+                        {/* Quality Button */}
+                        <button
+                          onClick={() => toggleStatsView('quality')}
+                          className="bg-green-600/20 hover:bg-green-600/30 border border-green-500/30 rounded-lg p-4 transition-all duration-200 flex flex-col items-center justify-center text-center"
+                        >
+                          <div className="text-lg font-bold text-green-400 mb-1">Quality</div>
+                          <div className="text-xs text-slate-400">Good • Dirty • Bad</div>
+                        </button>
+                </div>
+                    )}
+
+                    {/* Size View */}
+                    {activeStatsView === 'size' && (
+                      <div className="grid grid-cols-4 gap-3">
+                        <button
+                          onClick={() => setActiveStatsView('overview')}
+                          className="bg-slate-700/30 hover:bg-slate-600/30 border border-slate-600/30 rounded-lg p-4 text-center transition-all duration-200 flex flex-col items-center justify-center"
+                        >
+                          <div className="text-slate-400 text-sm">← Back</div>
+                          <div className="text-xs text-slate-500">to Overview</div>
+                        </button>
+                        <div className="bg-slate-700/30 rounded-lg border border-slate-600/30 p-4 text-center">
+                          <div className="text-2xl font-bold text-blue-400 mb-1">{batchStats.smallEggs}</div>
+                          <div className="text-sm text-slate-400">Small</div>
+                  </div>
+                        <div className="bg-slate-700/30 rounded-lg border border-slate-600/30 p-4 text-center">
+                          <div className="text-2xl font-bold text-green-400 mb-1">{batchStats.mediumEggs}</div>
+                          <div className="text-sm text-slate-400">Medium</div>
+                </div>
+                        <div className="bg-slate-700/30 rounded-lg border border-slate-600/30 p-4 text-center">
+                          <div className="text-2xl font-bold text-orange-400 mb-1">{batchStats.largeEggs}</div>
+                          <div className="text-sm text-slate-400">Large</div>
+                </div>
+              </div>
+                    )}
+
+                    {/* Quality View */}
+                    {activeStatsView === 'quality' && (
+                      <div className="grid grid-cols-4 gap-3">
+                        <button
+                          onClick={() => setActiveStatsView('overview')}
+                          className="bg-slate-700/30 hover:bg-slate-600/30 border border-slate-600/30 rounded-lg p-4 text-center transition-all duration-200 flex flex-col items-center justify-center"
+                        >
+                          <div className="text-slate-400 text-sm">← Back</div>
+                          <div className="text-xs text-slate-500">to Overview</div>
+                        </button>
+                        <div className="bg-slate-700/30 rounded-lg border border-slate-600/30 p-4 text-center">
+                          <div className="text-2xl font-bold text-emerald-400 mb-1">{batchStats.goodEggs}</div>
+                          <div className="text-sm text-slate-400">Good</div>
+                  </div>
+                        <div className="bg-slate-700/30 rounded-lg border border-slate-600/30 p-4 text-center">
+                          <div className="text-2xl font-bold text-yellow-400 mb-1">{batchStats.dirtyEggs}</div>
+                          <div className="text-sm text-slate-400">Dirty</div>
+                  </div>
+                        <div className="bg-slate-700/30 rounded-lg border border-slate-600/30 p-4 text-center">
+                          <div className="text-2xl font-bold text-red-400 mb-1">{batchStats.badEggs}</div>
+                          <div className="text-sm text-slate-400">Bad</div>
+                  </div>
+                  </div>
+                    )}
+                </div>
                 )}
               </div>
             </div>
@@ -1150,10 +1419,10 @@ export default function Home() {
                       }`}>
                         {configSource === 'user' ? 'Custom' : 
                          configSource === 'global' ? 'Default' : 'Local'}
-                  </div>
                 </div>
-                  </div>
-                  
+              </div>
+            </div>
+
                   <div className="grid grid-cols-3 gap-3">
                     {/* Small Eggs */}
                     <div className="flex items-center justify-between p-2 bg-slate-700/30 rounded border border-slate-600/30">
@@ -1198,19 +1467,19 @@ export default function Home() {
                       <div className="flex items-center gap-2">
                         <div className="w-6 h-6 bg-orange-500 rounded-full flex items-center justify-center">
                           <span className="text-white font-bold text-xs">L</span>
-                  </div>
+                </div>
                         <div>
                           <span className="text-slate-300 text-sm font-medium">Large</span>
                           <p className="text-slate-400 text-xs">{eggRanges.large.min.toFixed(2)}-{eggRanges.large.max.toFixed(2)}g</p>
-                  </div>
-                  </div>
+                </div>
+                </div>
                       <button
                         onClick={() => handleRangeEdit('large')}
                         className="bg-orange-600 hover:bg-orange-700 text-white px-6 py-4 rounded-lg text-lg font-medium transition-all duration-200"
                       >
                         Edit
                       </button>
-                  </div>
+              </div>
                 </div>
 
                   {/* Gap Warning */}
@@ -1268,11 +1537,11 @@ export default function Home() {
         {activeTab === 'account' && (
           <div className="h-full overflow-y-auto p-3">
             <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl p-4 border border-slate-600/30 shadow-lg">
-              
+
               <div className="space-y-6">
                 {/* Account Info Display - Only show when logged in */}
                 {currentAccountId && (
-              <div className="space-y-3">
+                <div className="space-y-3">
                     <div className="bg-gradient-to-r from-blue-900/30 to-purple-900/30 rounded-xl p-6 border border-blue-500/30 shadow-lg">
                       {isLoadingUser ? (
                         <div className="flex items-center justify-center gap-3">
@@ -1305,7 +1574,7 @@ export default function Home() {
                             <div className="text-2xl font-mono font-bold text-blue-400">{currentAccountId}</div>
                             <div className="text-slate-500 text-xs mt-1">
                               {userData.verified ? '✓ Verified' : '⚠ Unverified'}
-                </div>
+                    </div>
                 </div>
                 </div>
                       ) : (
@@ -1330,7 +1599,7 @@ export default function Home() {
                         >
                           <User className="h-5 w-5" />
                           {currentAccountId ? 'Change Account ID' : 'Enter Account ID'}
-                        </button>
+                      </button>
                         {currentAccountId && (
                           <button
                             onClick={clearAccountId}
@@ -1338,12 +1607,12 @@ export default function Home() {
                           >
                             <XCircle className="h-5 w-5" />
                             Clear
-                          </button>
+                      </button>
                         )}
                       </div>
-                    </div>
-                  </div>
-                </div>
+            </div>
+            </div>
+            </div>
             </div>
           </div>
           </div>
@@ -1529,20 +1798,20 @@ export default function Home() {
             onKeyDown={handleKeyPress}
             tabIndex={-1}
           >
-            <div className="bg-white/10 backdrop-blur-xl rounded-2xl px-8 py-4 max-w-5xl w-full mx-4 border border-white/20 shadow-2xl h-[450px]">
+            <div className="bg-white/10 backdrop-blur-xl rounded-2xl px-4 py-3 max-w-3xl w-full mx-4 border border-white/20 shadow-2xl h-[450px]">
 
               {/* Account ID Display and Number Pad */}
-              <div className="grid grid-cols-2 gap-8 h-full">
+              <div className="grid grid-cols-2 gap-4 h-full">
                 {/* Left Column - PIN Display and Action Buttons */}
-                <div className="flex flex-col justify-center items-center space-y-6">
-                  <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 border-2 border-blue-500/30 rounded-2xl px-8 py-12 shadow-2xl">
+                <div className="flex flex-col justify-center items-center space-y-4">
+                  <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 border-2 border-blue-500/30 rounded-2xl px-4 py-8 shadow-2xl">
                     <div className="text-center">
                       <div className="text-white text-3xl font-mono mb-4">MEGG-</div>
-                      <div className="flex justify-center space-x-3">
+                      <div className="flex justify-center space-x-2">
                         {Array.from({ length: 6 }, (_, index) => (
                           <div
                             key={index}
-                            className={`w-12 h-16 rounded-lg border-2 flex items-center justify-center text-2xl font-mono font-bold transition-all duration-300 ${
+                            className={`w-10 h-14 rounded-lg border-2 flex items-center justify-center text-xl font-mono font-bold transition-all duration-300 ${
                               index < pinInput.length
                                 ? 'bg-blue-600 border-blue-400 text-white shadow-lg'
                                 : 'bg-slate-700/50 border-slate-500/50 text-slate-400'
@@ -1556,17 +1825,17 @@ export default function Home() {
                   </div>
                   
                   {/* Action Buttons */}
-                  <div className="flex gap-6">
+                  <div className="flex gap-3">
                     <button
                       onClick={() => setShowPinModal(false)}
-                      className="bg-red-600 hover:bg-red-700 text-white px-10 py-5 rounded-xl text-xl font-bold transition-all duration-200 flex items-center justify-center gap-3 shadow-lg hover:shadow-xl"
+                      className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-xl text-base font-bold transition-all duration-200 flex items-center justify-center gap-2 shadow-lg hover:shadow-xl"
                     >
                       Cancel
                     </button>
                     <button
                       onClick={handlePinSubmit}
                       disabled={pinInput.length !== 6}
-                      className={`px-10 py-5 rounded-xl text-xl font-bold transition-all duration-200 flex items-center justify-center gap-3 shadow-lg hover:shadow-xl ${
+                      className={`px-6 py-3 rounded-xl text-base font-bold transition-all duration-200 flex items-center justify-center gap-2 shadow-lg hover:shadow-xl ${
                         pinInput.length === 6
                           ? 'bg-blue-600 hover:bg-blue-700 text-white'
                           : 'bg-gray-500 cursor-not-allowed text-gray-300'
@@ -1933,6 +2202,34 @@ export default function Home() {
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Toaster Notification */}
+        {toaster.show && (
+          <div className="fixed top-4 right-4 z-50 animate-in slide-in-from-right duration-300">
+            <div className={`px-6 py-4 rounded-lg shadow-lg border-l-4 flex items-center gap-3 min-w-[300px] ${
+              toaster.type === 'success' 
+                ? 'bg-green-500/20 text-green-300 border-green-500' 
+                : toaster.type === 'error'
+                ? 'bg-red-500/20 text-red-300 border-red-500'
+                : 'bg-blue-500/20 text-blue-300 border-blue-500'
+            }`}>
+              <div className={`w-2 h-2 rounded-full ${
+                toaster.type === 'success' 
+                  ? 'bg-green-400' 
+                  : toaster.type === 'error'
+                  ? 'bg-red-400'
+                  : 'bg-blue-400'
+              }`}></div>
+              <span className="font-medium">{toaster.message}</span>
+              <button
+                onClick={() => setToaster({ show: false, type: 'info', message: '' })}
+                className="ml-auto text-slate-400 hover:text-white transition-colors"
+              >
+                ✕
+              </button>
             </div>
           </div>
         )}
