@@ -46,6 +46,14 @@ class IoTService {
     const protocol = host === 'localhost' ? 'ws' : 'wss'
     const path = host === 'localhost' ? '' : '/ws'
     this.wsUrl = `${protocol}://${host}:${port}${path}`
+    
+    // Debug logging
+    console.log('🔍 IoT Service Configuration:')
+    console.log('  Host:', host)
+    console.log('  Port:', port)
+    console.log('  Protocol:', protocol)
+    console.log('  Path:', path)
+    console.log('  Full URL:', this.wsUrl)
   }
 
   // Connection Management
