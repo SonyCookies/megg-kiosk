@@ -34,12 +34,6 @@ const InternetConnectionContext = createContext<boolean>(true)
 const WebSocketContext = createContext<WebSocketContextType | null>(null)
 
 // ==========================================
-// Sync Lock Management
-// ==========================================
-let isSyncing = false
-let syncScheduled = false
-
-// ==========================================
 // Logger Setup
 // ==========================================
 const createLogger = (context: string) => ({
@@ -50,34 +44,6 @@ const createLogger = (context: string) => ({
 
 const internetLogger = createLogger("InternetConnectionContext")
 const wsLogger = createLogger("WebSocketContext")
-
-// ==========================================
-// Sync Function
-// ==========================================
-const runSyncWithLock = async (): Promise<void> => {
-  if (isSyncing) {
-    internetLogger.log("Sync already in progress, scheduling another sync")
-    syncScheduled = true
-    return
-  }
-
-  try {
-    isSyncing = true
-    internetLogger.log("Starting sync operation")
-    await syncData()
-    internetLogger.log("Sync operation completed")
-  } catch (error) {
-    internetLogger.error(`Error during sync: ${error instanceof Error ? error.message : String(error)}`)
-  } finally {
-    isSyncing = false
-
-    if (syncScheduled) {
-      internetLogger.log("Running scheduled sync")
-      syncScheduled = false
-      runSyncWithLock()
-    }
-  }
-}
 
 // ==========================================
 // Custom Hooks
@@ -179,8 +145,7 @@ export const NetworkProvider = ({ children }: NetworkProviderProps): React.React
       internetLogger.log(`Internet connection status changed to: ${hasInternet ? "online" : "offline"}`)
 
       if (hasInternet && wasOffline) {
-        internetLogger.log("Connection restored, triggering sync")
-        runSyncWithLock()
+        internetLogger.log("Connection restored")
       }
     },
     [checkConnectivity],
