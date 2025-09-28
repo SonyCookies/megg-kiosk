@@ -17,6 +17,7 @@ import { collection, query, where, getDocs } from 'firebase/firestore'
 import iotService from './services/iotService'
 import calibrationService from './services/calibrationService'
 import userService from './services/userService'
+import batchService from './services/batchService'
 import { 
   getConfigurationWithFallback, 
   saveConfigurationWithFallback, 
@@ -164,6 +165,29 @@ export default function Home() {
   useEffect(() => {
     if (currentAccountId) {
       loadCalibrationHistory(currentAccountId)
+    }
+  }, [currentAccountId])
+
+  // Load batches when account ID changes
+  const loadBatches = async (accountId: string) => {
+    if (!accountId) return
+    
+    try {
+      const batches = await batchService.getBatchesForAccount(accountId, 5)
+      // You can use this to show recent batches or set a default batch
+      if (batches.length > 0) {
+        // Optionally set the most recent batch as current
+        // setCurrentBatch(batches[0])
+      }
+    } catch (error) {
+      console.error('❌ Error loading batches:', error)
+    }
+  }
+
+  // Load batches when account ID changes
+  useEffect(() => {
+    if (currentAccountId) {
+      loadBatches(currentAccountId)
     }
   }, [currentAccountId])
 
@@ -659,10 +683,7 @@ export default function Home() {
     
     try {
       setIsCheckingBatch(true)
-      // In a real implementation, you would check against your database
-      // For now, we'll simulate checking with localStorage or a simple check
-      const existingBatches = JSON.parse(localStorage.getItem('megg-batches') || '[]')
-      const foundBatch = existingBatches.find((batch: any) => batch.id === batchId)
+      const foundBatch = await batchService.getBatch(batchId)
       
       if (foundBatch) {
         setExistingBatch(foundBatch)
@@ -713,36 +734,30 @@ export default function Home() {
         dirtyEggs: 0,
         badEggs: 0
       })
-      console.log('Existing batch loaded:', existingBatchData)
     } else {
-      // Create new batch
-      const newBatch = {
-        id: batchId,
-        accountId: currentAccountId,
-        uid: userData?.uid || null, // User UID from Firebase
-        name: `Batch ${batchId}`,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        stats: {
-          totalEggs: 0,
-          smallEggs: 0,
-          mediumEggs: 0,
-          largeEggs: 0,
-          goodEggs: 0,
-          dirtyEggs: 0,
-          badEggs: 0
-        }
+      // Get UID for the batch
+      const uid = await userService.getUIDByAccountId(currentAccountId)
+      if (!uid) {
+        setBatchIdError('Unable to get user UID. Please check account setup.')
+        return
       }
       
-      // Save to localStorage (in real app, save to database)
-      const existingBatches = JSON.parse(localStorage.getItem('megg-batches') || '[]')
-      existingBatches.push(newBatch)
-      localStorage.setItem('megg-batches', JSON.stringify(existingBatches))
+      // Create new batch in Firebase
+      const newBatch = await batchService.createBatch(
+        batchId,
+        currentAccountId,
+        uid,
+        `Batch ${batchId}`
+      )
       
-      setCurrentBatch(newBatch)
-      setBatchStatus('ready')
-      setBatchStats(newBatch.stats)
-      console.log('New batch created:', newBatch)
+      if (newBatch) {
+        setCurrentBatch(newBatch)
+        setBatchStatus('ready')
+        setBatchStats(newBatch.stats)
+      } else {
+        setBatchIdError('Failed to create batch. Please try again.')
+        return
+      }
     }
     
     setShowCreateBatchModal(false)
@@ -751,24 +766,24 @@ export default function Home() {
     setExistingBatch(null)
   }
 
-  const startBatchProcessing = () => {
+  const startBatchProcessing = async () => {
     if (currentBatch) {
       setBatchStatus('processing')
-      console.log('Starting batch processing for:', currentBatch.id)
+      await batchService.updateBatchStatus(currentBatch.id, 'processing')
     }
   }
 
-  const stopBatchProcessing = () => {
+  const stopBatchProcessing = async () => {
     if (currentBatch) {
       setBatchStatus('completed')
-      console.log('Stopping batch processing for:', currentBatch.id)
+      await batchService.updateBatchStatus(currentBatch.id, 'completed')
     }
   }
 
-  const completeBatch = () => {
+  const completeBatch = async () => {
     if (currentBatch) {
       setBatchStatus('completed')
-      console.log('Batch completed:', currentBatch.id)
+      await batchService.updateBatchStatus(currentBatch.id, 'completed')
     }
   }
 
@@ -785,7 +800,38 @@ export default function Home() {
       badEggs: 0
     })
     setActiveStatsView('overview')
-    console.log('Batch reset')
+  }
+
+  // Update batch stats when eggs are processed
+  const updateBatchStats = async (newStats: typeof batchStats) => {
+    if (!currentBatch) return
+    
+    try {
+      // Update local state
+      setBatchStats(newStats)
+      
+      // Update Firebase
+      await batchService.updateBatchStats(currentBatch.id, newStats)
+    } catch (error) {
+      console.error('❌ Error updating batch stats:', error)
+    }
+  }
+
+  // Add egg to batch (call this when an egg is processed)
+  const addEggToBatch = async (eggData: {
+    size: 'small' | 'medium' | 'large'
+    quality: 'good' | 'dirty' | 'bad'
+  }) => {
+    if (!currentBatch) return
+    
+    const newStats = {
+      ...batchStats,
+      totalEggs: batchStats.totalEggs + 1,
+      [`${eggData.size}Eggs`]: batchStats[`${eggData.size}Eggs`] + 1,
+      [`${eggData.quality}Eggs`]: batchStats[`${eggData.quality}Eggs`] + 1
+    }
+    
+    await updateBatchStats(newStats)
   }
 
   const toggleStatsView = (view: 'size' | 'quality') => {
@@ -831,9 +877,7 @@ export default function Home() {
     
     // Send calibration request to IoT backend
     try {
-      console.log('🔧 Sending UNO calibration request...')
-      const result = await iotService.calibrateComponent('UNO')
-      console.log('✅ UNO calibration request sent successfully:', result)
+      await iotService.calibrateComponent('UNO')
     } catch (error) {
       console.error('❌ Failed to send UNO calibration request:', error)
       // Reset the calibration state on error
@@ -848,9 +892,7 @@ export default function Home() {
     
     // Send calibration request to IoT backend
     try {
-      console.log('🔧 Sending HX711 calibration request...')
-      const result = await iotService.calibrateComponent('HX711')
-      console.log('✅ HX711 calibration request sent successfully:', result)
+      await iotService.calibrateComponent('HX711')
     } catch (error) {
       console.error('❌ Failed to send HX711 calibration request:', error)
       // Reset the calibration state on error
@@ -865,9 +907,7 @@ export default function Home() {
     
     // Send calibration request to IoT backend
     try {
-      console.log('🔧 Sending NEMA23 calibration request...')
-      const result = await iotService.calibrateComponent('NEMA23')
-      console.log('✅ NEMA23 calibration request sent successfully:', result)
+      await iotService.calibrateComponent('NEMA23')
     } catch (error) {
       console.error('❌ Failed to send NEMA23 calibration request:', error)
       // Reset the calibration state on error
@@ -882,9 +922,7 @@ export default function Home() {
     
     // Send calibration request to IoT backend
     try {
-      console.log('🔧 Sending SG90 calibration request...')
-      const result = await iotService.calibrateComponent('SG90')
-      console.log('✅ SG90 calibration request sent successfully:', result)
+      await iotService.calibrateComponent('SG90')
     } catch (error) {
       console.error('❌ Failed to send SG90 calibration request:', error)
       // Reset the calibration state on error
@@ -899,9 +937,7 @@ export default function Home() {
     
     // Send calibration request to IoT backend
     try {
-      console.log('🔧 Sending MG996R calibration request...')
-      const result = await iotService.calibrateComponent('MG996R')
-      console.log('✅ MG996R calibration request sent successfully:', result)
+      await iotService.calibrateComponent('MG996R')
     } catch (error) {
       console.error('❌ Failed to send MG996R calibration request:', error)
       // Reset the calibration state on error

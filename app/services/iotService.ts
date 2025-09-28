@@ -43,7 +43,9 @@ class IoTService {
     // Use environment variables or default to localhost
     const host = process.env.NEXT_PUBLIC_IOT_BACKEND_HOST || 'localhost'
     const port = process.env.NEXT_PUBLIC_IOT_BACKEND_PORT || '8765'
-    this.wsUrl = `ws://${host}:${port}`
+    const protocol = host === 'localhost' ? 'ws' : 'wss'
+    const path = host === 'localhost' ? '' : '/ws'
+    this.wsUrl = `${protocol}://${host}:${port}${path}`
   }
 
   // Connection Management
