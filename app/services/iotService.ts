@@ -53,7 +53,6 @@ class IoTService {
         this.websocket = new WebSocket(this.wsUrl)
 
         this.websocket.onopen = () => {
-          console.log('✅ Connected to MEGG IoT Backend')
           this.connectionStatus = true
           this.reconnectAttempts = 0
           this.emit('connected')
@@ -103,7 +102,6 @@ class IoTService {
   }
 
   private handleMessage(data: any) {
-    console.log('📨 WebSocket message received:', data)
 
     // Update Arduino status
     if (data.type === 'system_status' && data.arduino) {
@@ -128,10 +126,9 @@ class IoTService {
         this.emit('systemStatus', data)
         break
       case 'connection':
-        console.log('🔌 IoT Backend connected:', data.message)
         break
       default:
-        console.log('Unknown WebSocket message type:', data.type)
+        break
     }
   }
 
@@ -203,12 +200,12 @@ class IoTService {
         const handler = (data: any) => {
           if (data.component === component) {
             clearTimeout(timeout)
-            this.off('calibrationResponse', handler)
+            this.off('calibrationResult', handler)
             resolve(data)
           }
         }
 
-        this.on('calibrationResponse', handler)
+        this.on('calibrationResult', handler)
       })
     } catch (error) {
       console.error('Calibration request failed:', error)

@@ -24,7 +24,6 @@ export default function CameraTab({ isOnline, isFullscreen, onToggleFullscreen }
   // Camera functions
   const startCamera = useCallback(async () => {
     try {
-      console.log('Starting camera...')
       setIsCameraLoading(true)
       setCameraError("")
       

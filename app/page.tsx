@@ -15,6 +15,8 @@ import { useInternetConnection, useWebSocket } from "./contexts/NetworkContext"
 import { db } from './libs/firebaseConfig'
 import { collection, query, where, getDocs } from 'firebase/firestore'
 import iotService from './services/iotService'
+import calibrationService from './services/calibrationService'
+import userService from './services/userService'
 import { 
   getConfigurationWithFallback, 
   saveConfigurationWithFallback, 
@@ -115,6 +117,115 @@ export default function Home() {
 
   // IoT connection state
   const [iotConnected, setIotConnected] = useState(false)
+  
+  // Calibration status tracking
+  const [calibrationStatus, setCalibrationStatus] = useState<{
+    UNO: { status: 'unknown' | 'calibrated' | 'calibrating', lastCalibration: string | null }
+    HX711: { status: 'unknown' | 'calibrated' | 'calibrating', lastCalibration: string | null }
+    NEMA23: { status: 'unknown' | 'calibrated' | 'calibrating', lastCalibration: string | null }
+    SG90: { status: 'unknown' | 'calibrated' | 'calibrating', lastCalibration: string | null }
+    MG996R: { status: 'unknown' | 'calibrated' | 'calibrating', lastCalibration: string | null }
+  }>({
+    UNO: { status: 'unknown', lastCalibration: null },
+    HX711: { status: 'unknown', lastCalibration: null },
+    NEMA23: { status: 'unknown', lastCalibration: null },
+    SG90: { status: 'unknown', lastCalibration: null },
+    MG996R: { status: 'unknown', lastCalibration: null }
+  })
+
+  // Load calibration history from Firebase
+  const loadCalibrationHistory = async (accountId: string) => {
+    if (!accountId) return
+    
+    try {
+      const calibrations = await calibrationService.getLatestCalibrations(accountId, 5)
+      
+      // Update calibration status with latest results
+      setCalibrationStatus(prev => {
+        const newStatus = { ...prev }
+        
+        calibrations.forEach(calibration => {
+          if (calibration.component in newStatus) {
+            newStatus[calibration.component as keyof typeof newStatus] = {
+              status: calibration.status,
+              lastCalibration: calibration.timestamp
+            }
+          }
+        })
+        
+        return newStatus
+      })
+    } catch (error) {
+      console.error('❌ Error loading calibration history:', error)
+    }
+  }
+
+  // Load calibration history when account ID changes
+  useEffect(() => {
+    if (currentAccountId) {
+      loadCalibrationHistory(currentAccountId)
+    }
+  }, [currentAccountId])
+
+  // Periodic sync to ensure account state stays in sync with localStorage
+  useEffect(() => {
+    const syncInterval = setInterval(() => {
+      const savedAccountId = localStorage.getItem('megg-account-id')
+      if (savedAccountId && !currentAccountId) {
+        setCurrentAccountId(savedAccountId)
+      }
+    }, 1000) // Check every second
+
+    return () => clearInterval(syncInterval)
+  }, [currentAccountId])
+
+  // Load account ID from localStorage on page load
+  useEffect(() => {
+    const loadAccountFromStorage = async () => {
+      try {
+        const savedAccountId = localStorage.getItem('megg-account-id')
+        if (savedAccountId) {
+          setCurrentAccountId(savedAccountId)
+          
+          // Fetch user data and load configuration
+          const userData = await fetchUserData(savedAccountId)
+          
+          if (userData) {
+            await loadConfiguration(savedAccountId)
+            // If account ID exists, go to camera tab
+            setActiveTab('camera')
+          } else {
+            localStorage.removeItem('megg-account-id')
+            setCurrentAccountId(null)
+            // If no account ID, go to account tab
+            setActiveTab('account')
+          }
+        } else {
+          // If no account ID, go to account tab
+          setActiveTab('account')
+        }
+      } catch (error) {
+        console.error('❌ Error loading account from localStorage:', error)
+        // On error, go to account tab
+        setActiveTab('account')
+      }
+    }
+
+    loadAccountFromStorage()
+  }, [])
+
+  // Development helper functions (remove in production)
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development') {
+      (window as any).debugAccountState = () => {
+        console.log('Account state:', {
+          hasAccountId: !!currentAccountId,
+          hasUserData: !!userData,
+          timestamp: new Date().toISOString()
+        })
+      }
+    }
+  }, [currentAccountId, userData])
 
   // Network status
   const isOnline = useInternetConnection()
@@ -127,41 +238,40 @@ export default function Home() {
     return () => clearTimeout(timer)
   }, [])
 
-  // Load account ID from localStorage on component mount and set initial tab
-  useEffect(() => {
-    const savedAccountId = localStorage.getItem('megg-account-id')
-    if (savedAccountId) {
-      setCurrentAccountId(savedAccountId)
-      // Fetch user data for the saved account ID
-      fetchUserData(savedAccountId)
-      // Load configuration for the account
-      loadConfiguration(savedAccountId)
-      // If account ID exists, go to camera tab
-      setActiveTab('camera')
-    } else {
-      // If no account ID, go to account tab
-      setActiveTab('account')
-    }
-  }, [])
+  // This effect is handled by the more comprehensive loadAccountFromStorage effect above
 
   // IoT connection management
   useEffect(() => {
     const connectIoT = async () => {
       try {
-        console.log('🔌 Attempting to connect to IoT backend...')
         await iotService.connect()
         setIotConnected(true)
-        console.log('✅ IoT Backend connection established')
         
-        // Get initial system status after a delay to ensure connection is stable
-        setTimeout(async () => {
-          try {
-            const status = await iotService.getSystemStatus()
-            console.log('📊 Initial system status:', status)
-          } catch (error) {
-            console.error('❌ Failed to get initial system status:', error)
-          }
-        }, 2000)
+             // Get initial system status after a delay to ensure connection is stable
+             setTimeout(async () => {
+               try {
+                 const status = await iotService.getSystemStatus()
+                 
+                 // Update calibration status from system status
+                 if ((status as any).components) {
+                   setCalibrationStatus(prev => {
+                     const newStatus = { ...prev }
+                     Object.keys((status as any).components).forEach(component => {
+                       const componentKey = component.toUpperCase()
+                       if (prev[componentKey as keyof typeof prev]) {
+                         newStatus[componentKey as keyof typeof prev] = {
+                           status: (status as any).components[component].status || 'unknown',
+                           lastCalibration: (status as any).components[component].last_calibration || null
+                         }
+                       }
+                     })
+                     return newStatus
+                   })
+                 }
+               } catch (error) {
+                 console.error('❌ Failed to get initial system status:', error)
+               }
+             }, 2000)
       } catch (error) {
         console.error('❌ Failed to connect to IoT backend:', error)
         setIotConnected(false)
@@ -170,21 +280,76 @@ export default function Home() {
 
     // Event handlers
     const handleConnected = () => {
-      console.log('✅ IoT Backend connected')
       setIotConnected(true)
     }
 
     const handleDisconnected = () => {
-      console.log('❌ IoT Backend disconnected')
       setIotConnected(false)
     }
 
-    const handleCalibrationResult = (data: any) => {
-      console.log(`Calibration ${data.success ? 'completed' : 'failed'} for ${data.component}:`, data.message || data.error)
+    const handleCalibrationResult = async (data: any) => {
+      
+      // Update calibration status
+      if (data.component && data.status) {
+        setCalibrationStatus(prev => {
+          const component = data.component.toUpperCase() // Ensure uppercase
+          const newStatus = {
+            ...prev,
+            [component]: {
+              status: data.status === 'completed' ? 'calibrated' : 
+                     data.status === 'started' ? 'calibrating' : 'unknown',
+              lastCalibration: data.status === 'completed' ? new Date().toISOString() : 
+                             prev[component as keyof typeof prev]?.lastCalibration || null
+            }
+          }
+          return newStatus
+        })
+      }
+      
+      // Save calibration result to Firebase using account ID from header
+      // Use localStorage as fallback if currentAccountId is null
+      const accountId = currentAccountId || localStorage.getItem('megg-account-id')
+      
+      if (accountId) {
+        try {
+          // Get UID using the account ID
+          const uid = await calibrationService.getUIDByAccountId(accountId)
+          
+          if (uid) {
+            const component = data.component.toUpperCase()
+            const status = data.status === 'completed' ? 'calibrated' : 
+                          data.status === 'started' ? 'calibrating' : 'unknown'
+            
+            await calibrationService.saveCalibrationResult(
+              accountId,
+              uid,
+              component,
+              status,
+              data.success || false,
+              data.message || `${component} calibration ${data.success ? 'completed' : 'failed'}`
+            )
+            
+            // Ensure user configuration has UID
+            await calibrationService.ensureUserHasUID(accountId)
+          } else {
+            showToaster('info', 'Calibration completed but UID not found. Please check account setup.')
+          }
+        } catch (error) {
+          console.error('❌ Failed to save calibration result to Firebase:', error)
+          showToaster('error', 'Failed to save calibration result to Firebase.')
+        }
+      } else {
+        showToaster('info', 'Calibration completed! Enter your Account ID to save results to Firebase.')
+      }
       
       if (data.status === 'completed' || data.status === 'failed') {
         const toasterType = data.success ? 'success' : 'error'
         showToaster(toasterType, data.message || `${data.component} calibration ${data.success ? 'completed' : 'failed'}`)
+        resetCalibrationState(data.component)
+      } else if (!data.success && data.message) {
+        // Handle immediate error responses (like Arduino not connected)
+        const toasterType = 'error'
+        showToaster(toasterType, data.message)
         resetCalibrationState(data.component)
       }
     }
@@ -237,10 +402,15 @@ export default function Home() {
         const userDoc = querySnapshot.docs[0]
         const userData = userDoc.data()
         setUserData(userData)
-        console.log('User data fetched:', userData)
+        
+        // Ensure user configuration has UID
+        await calibrationService.ensureUserHasUID(accountId)
+        
+        // Load calibration history for this user
+        await loadCalibrationHistory(accountId)
+        
         return userData
       } else {
-        console.log('No user found with account ID:', accountId)
         setUserData(null)
         return null
       }
@@ -265,9 +435,6 @@ export default function Home() {
       const validation = validateRanges(config.ranges)
       setRangeValidation(validation)
       setShowGapWarning(validation.hasGaps)
-      
-      console.log('Configuration loaded:', config)
-      console.log('Range validation:', validation)
     } catch (error) {
       console.error('Error loading configuration:', error)
     } finally {
@@ -349,7 +516,7 @@ export default function Home() {
       setRangeError('Please enter both minimum and maximum values')
       return
     }
-
+    
     const min = parseFloat(minInput)
     const max = parseFloat(maxInput)
 
@@ -357,12 +524,12 @@ export default function Home() {
       setRangeError('Please enter valid numbers')
       return
     }
-
+    
     if (min >= max) {
       setRangeError('Minimum must be less than maximum')
       return
     }
-
+    
     setIsSavingRange(true)
     setRangeError('')
 
@@ -661,28 +828,87 @@ export default function Home() {
   // Calibration functions - Now handled by IoT backend simulation
   const handleUnoCalibration = async () => {
     setIsCalibratingUno(true)
-    // The IoT backend will handle the simulation and toaster notifications
-    // The loading state will be reset when calibration completes
+    
+    // Send calibration request to IoT backend
+    try {
+      console.log('🔧 Sending UNO calibration request...')
+      const result = await iotService.calibrateComponent('UNO')
+      console.log('✅ UNO calibration request sent successfully:', result)
+    } catch (error) {
+      console.error('❌ Failed to send UNO calibration request:', error)
+      // Reset the calibration state on error
+      setIsCalibratingUno(false)
+      // Show error toaster
+      showToaster('error', 'Failed to send UNO calibration request. Please check IoT backend connection.')
+    }
   }
 
   const handleHX711Calibration = async () => {
     setIsCalibratingHX711(true)
-    // The IoT backend will handle the simulation and toaster notifications
+    
+    // Send calibration request to IoT backend
+    try {
+      console.log('🔧 Sending HX711 calibration request...')
+      const result = await iotService.calibrateComponent('HX711')
+      console.log('✅ HX711 calibration request sent successfully:', result)
+    } catch (error) {
+      console.error('❌ Failed to send HX711 calibration request:', error)
+      // Reset the calibration state on error
+      setIsCalibratingHX711(false)
+      // Show error toaster
+      showToaster('error', 'Failed to send HX711 calibration request. Please check IoT backend connection.')
+    }
   }
 
   const handleNema23Calibration = async () => {
     setIsCalibratingNema23(true)
-    // The IoT backend will handle the simulation and toaster notifications
+    
+    // Send calibration request to IoT backend
+    try {
+      console.log('🔧 Sending NEMA23 calibration request...')
+      const result = await iotService.calibrateComponent('NEMA23')
+      console.log('✅ NEMA23 calibration request sent successfully:', result)
+    } catch (error) {
+      console.error('❌ Failed to send NEMA23 calibration request:', error)
+      // Reset the calibration state on error
+      setIsCalibratingNema23(false)
+      // Show error toaster
+      showToaster('error', 'Failed to send NEMA23 calibration request. Please check IoT backend connection.')
+    }
   }
 
   const handleSG90Calibration = async () => {
     setIsCalibratingSG90(true)
-    // The IoT backend will handle the simulation and toaster notifications
+    
+    // Send calibration request to IoT backend
+    try {
+      console.log('🔧 Sending SG90 calibration request...')
+      const result = await iotService.calibrateComponent('SG90')
+      console.log('✅ SG90 calibration request sent successfully:', result)
+    } catch (error) {
+      console.error('❌ Failed to send SG90 calibration request:', error)
+      // Reset the calibration state on error
+      setIsCalibratingSG90(false)
+      // Show error toaster
+      showToaster('error', 'Failed to send SG90 calibration request. Please check IoT backend connection.')
+    }
   }
 
   const handleMG996RCalibration = async () => {
     setIsCalibratingMG996R(true)
-    // The IoT backend will handle the simulation and toaster notifications
+    
+    // Send calibration request to IoT backend
+    try {
+      console.log('🔧 Sending MG996R calibration request...')
+      const result = await iotService.calibrateComponent('MG996R')
+      console.log('✅ MG996R calibration request sent successfully:', result)
+    } catch (error) {
+      console.error('❌ Failed to send MG996R calibration request:', error)
+      // Reset the calibration state on error
+      setIsCalibratingMG996R(false)
+      // Show error toaster
+      showToaster('error', 'Failed to send MG996R calibration request. Please check IoT backend connection.')
+    }
   }
 
   // Handle keyboard input for number pad
@@ -826,21 +1052,23 @@ export default function Home() {
         )}
 
                {activeTab === 'calibration' && (
-                 <CalibrationTab
-                   isCalibratingUno={isCalibratingUno}
-                   isCalibratingHX711={isCalibratingHX711}
-                   isCalibratingNema23={isCalibratingNema23}
-                   isCalibratingSG90={isCalibratingSG90}
-                   isCalibratingMG996R={isCalibratingMG996R}
-                   onHandleUnoCalibration={handleUnoCalibration}
-                   onHandleHX711Calibration={handleHX711Calibration}
-                   onHandleNema23Calibration={handleNema23Calibration}
-                   onHandleSG90Calibration={handleSG90Calibration}
-                   onHandleMG996RCalibration={handleMG996RCalibration}
-                   showToaster={showToaster}
-                   onResetCalibrationState={resetCalibrationState}
-                   iotConnected={iotConnected}
-                 />
+        <CalibrationTab
+          isCalibratingUno={isCalibratingUno}
+          isCalibratingHX711={isCalibratingHX711}
+          isCalibratingNema23={isCalibratingNema23}
+          isCalibratingSG90={isCalibratingSG90}
+          isCalibratingMG996R={isCalibratingMG996R}
+          onHandleUnoCalibration={handleUnoCalibration}
+          onHandleHX711Calibration={handleHX711Calibration}
+          onHandleNema23Calibration={handleNema23Calibration}
+          onHandleSG90Calibration={handleSG90Calibration}
+          onHandleMG996RCalibration={handleMG996RCalibration}
+          showToaster={showToaster}
+          onResetCalibrationState={resetCalibrationState}
+          iotConnected={iotConnected}
+          hasAccountId={!!(currentAccountId || userData?.accountId)}
+          calibrationStatus={calibrationStatus}
+        />
                )}
 
         {activeTab === 'account' && (
@@ -852,7 +1080,7 @@ export default function Home() {
             onClearAccountId={clearAccountId}
           />
         )}
-        </div>
+          </div>
 
       {/* Modals */}
       <PinModal

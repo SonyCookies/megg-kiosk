@@ -23,19 +23,8 @@ export interface RoboflowResponse {
 
 export class RoboflowService {
   constructor() {
-    console.log("🏗️ Initializing RoboflowService...")
-    console.log("🔧 Configuration validation:", {
-      isComplete: isConfigComplete(),
-      apiKey: ROBOFLOW_CONFIG.API_KEY ? `${ROBOFLOW_CONFIG.API_KEY.substring(0, 8)}...` : 'MISSING',
-      workspace: ROBOFLOW_CONFIG.WORKSPACE_NAME,
-      workflowId: ROBOFLOW_CONFIG.WORKFLOW_ID,
-      apiUrl: ROBOFLOW_CONFIG.API_URL
-    })
-    
     if (!isConfigComplete()) {
       console.warn("⚠️ Roboflow configuration is incomplete. Please update your API key and workflow ID in app/config/roboflow.ts")
-      console.warn("📋 Current config values:", ROBOFLOW_CONFIG)
-    } else {
     }
   }
 
