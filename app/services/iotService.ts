@@ -200,11 +200,17 @@ class IoTService {
 
   async calibrateComponent(component: string): Promise<CalibrationResponse> {
     try {
+      // Check if connected before sending request
+      if (!this.isConnected()) {
+        throw new Error('WebSocket not connected to IoT backend')
+      }
+
       await this.sendMessage('calibration_request', { component })
       
       return new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
-          reject(new Error('Calibration request timeout'))
+          this.off('calibrationResult', handler)
+          reject(new Error(`Calibration request timeout for ${component} - no response from IoT backend`))
         }, 30000) // 30 second timeout
 
         const handler = (data: any) => {

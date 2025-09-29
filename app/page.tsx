@@ -366,15 +366,20 @@ export default function Home() {
         showToaster('info', 'Calibration completed! Enter your Account ID to save results to Firebase.')
       }
       
-      if (data.status === 'completed' || data.status === 'failed') {
-        const toasterType = data.success ? 'success' : 'error'
-        showToaster(toasterType, data.message || `${data.component} calibration ${data.success ? 'completed' : 'failed'}`)
+      // Show real calibration results - no simulation fallbacks
+      if (data.status === 'completed') {
+        if (data.success) {
+          showToaster('success', data.message || `${data.component} calibration completed successfully`)
+        } else {
+          showToaster('error', data.message || `${data.component} calibration failed`)
+        }
         resetCalibrationState(data.component)
-      } else if (!data.success && data.message) {
-        // Handle immediate error responses (like Arduino not connected)
-        const toasterType = 'error'
-        showToaster(toasterType, data.message)
+      } else if (data.status === 'failed' || !data.success) {
+        showToaster('error', data.message || `${data.component} calibration failed: ${data.error || 'Unknown error'}`)
         resetCalibrationState(data.component)
+      } else if (data.status === 'started') {
+        // Don't show toaster for started status, just update UI
+        console.log(`🔄 ${data.component} calibration started`)
       }
     }
 
@@ -871,79 +876,129 @@ export default function Home() {
     }
   }
 
-  // Calibration functions - Now handled by IoT backend simulation
+  // Calibration functions - Real hardware calibration
   const handleUnoCalibration = async () => {
     setIsCalibratingUno(true)
     
+    // Check if IoT backend is connected
+    if (!iotService.isConnected()) {
+      setIsCalibratingUno(false)
+      showToaster('error', 'IoT Backend not connected. Please check connection and try again.')
+      return
+    }
+    
     // Send calibration request to IoT backend
     try {
-      await iotService.calibrateComponent('UNO')
+      const result = await iotService.calibrateComponent('UNO')
+      
+      if (!result.success) {
+        setIsCalibratingUno(false)
+        showToaster('error', `UNO Calibration failed: ${result.error || 'Unknown error'}`)
+      }
     } catch (error) {
-      console.error('❌ Failed to send UNO calibration request:', error)
-      // Reset the calibration state on error
+      console.error('❌ UNO calibration error:', error)
       setIsCalibratingUno(false)
-      // Show error toaster
-      showToaster('error', 'Failed to send UNO calibration request. Please check IoT backend connection.')
+      showToaster('error', `UNO Calibration failed: ${error instanceof Error ? error.message : 'Connection timeout or server error'}`)
     }
   }
 
   const handleHX711Calibration = async () => {
     setIsCalibratingHX711(true)
     
+    // Check if IoT backend is connected
+    if (!iotService.isConnected()) {
+      setIsCalibratingHX711(false)
+      showToaster('error', 'IoT Backend not connected. Please check connection and try again.')
+      return
+    }
+    
     // Send calibration request to IoT backend
     try {
-      await iotService.calibrateComponent('HX711')
+      const result = await iotService.calibrateComponent('HX711')
+      
+      if (!result.success) {
+        setIsCalibratingHX711(false)
+        showToaster('error', `HX711 Calibration failed: ${result.error || 'Unknown error'}`)
+      }
     } catch (error) {
-      console.error('❌ Failed to send HX711 calibration request:', error)
-      // Reset the calibration state on error
+      console.error('❌ HX711 calibration error:', error)
       setIsCalibratingHX711(false)
-      // Show error toaster
-      showToaster('error', 'Failed to send HX711 calibration request. Please check IoT backend connection.')
+      showToaster('error', `HX711 Calibration failed: ${error instanceof Error ? error.message : 'Connection timeout or server error'}`)
     }
   }
 
   const handleNema23Calibration = async () => {
     setIsCalibratingNema23(true)
     
+    // Check if IoT backend is connected
+    if (!iotService.isConnected()) {
+      setIsCalibratingNema23(false)
+      showToaster('error', 'IoT Backend not connected. Please check connection and try again.')
+      return
+    }
+    
     // Send calibration request to IoT backend
     try {
-      await iotService.calibrateComponent('NEMA23')
+      const result = await iotService.calibrateComponent('NEMA23')
+      
+      if (!result.success) {
+        setIsCalibratingNema23(false)
+        showToaster('error', `NEMA23 Calibration failed: ${result.error || 'Unknown error'}`)
+      }
     } catch (error) {
-      console.error('❌ Failed to send NEMA23 calibration request:', error)
-      // Reset the calibration state on error
+      console.error('❌ NEMA23 calibration error:', error)
       setIsCalibratingNema23(false)
-      // Show error toaster
-      showToaster('error', 'Failed to send NEMA23 calibration request. Please check IoT backend connection.')
+      showToaster('error', `NEMA23 Calibration failed: ${error instanceof Error ? error.message : 'Connection timeout or server error'}`)
     }
   }
 
   const handleSG90Calibration = async () => {
     setIsCalibratingSG90(true)
     
+    // Check if IoT backend is connected
+    if (!iotService.isConnected()) {
+      setIsCalibratingSG90(false)
+      showToaster('error', 'IoT Backend not connected. Please check connection and try again.')
+      return
+    }
+    
     // Send calibration request to IoT backend
     try {
-      await iotService.calibrateComponent('SG90')
+      const result = await iotService.calibrateComponent('SG90')
+      
+      if (!result.success) {
+        setIsCalibratingSG90(false)
+        showToaster('error', `SG90 Calibration failed: ${result.error || 'Unknown error'}`)
+      }
     } catch (error) {
-      console.error('❌ Failed to send SG90 calibration request:', error)
-      // Reset the calibration state on error
+      console.error('❌ SG90 calibration error:', error)
       setIsCalibratingSG90(false)
-      // Show error toaster
-      showToaster('error', 'Failed to send SG90 calibration request. Please check IoT backend connection.')
+      showToaster('error', `SG90 Calibration failed: ${error instanceof Error ? error.message : 'Connection timeout or server error'}`)
     }
   }
 
   const handleMG996RCalibration = async () => {
     setIsCalibratingMG996R(true)
     
+    // Check if IoT backend is connected
+    if (!iotService.isConnected()) {
+      setIsCalibratingMG996R(false)
+      showToaster('error', 'IoT Backend not connected. Please check connection and try again.')
+      return
+    }
+    
     // Send calibration request to IoT backend
     try {
-      await iotService.calibrateComponent('MG996R')
+      const result = await iotService.calibrateComponent('MG996R')
+      
+      if (!result.success) {
+        setIsCalibratingMG996R(false)
+        showToaster('error', `MG996R Calibration failed: ${result.error || 'Unknown error'}`)
+      }
     } catch (error) {
-      console.error('❌ Failed to send MG996R calibration request:', error)
-      // Reset the calibration state on error
+      console.error('❌ MG996R calibration error:', error)
       setIsCalibratingMG996R(false)
-      // Show error toaster
-      showToaster('error', 'Failed to send MG996R calibration request. Please check IoT backend connection.')
+      showToaster('error', `MG996R Calibration failed: ${error instanceof Error ? error.message : 'Connection timeout or server error'}`)
     }
   }
 
