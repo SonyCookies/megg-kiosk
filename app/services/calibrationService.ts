@@ -21,7 +21,7 @@ export interface CalibrationData {
   accountId: string
   uid: string
   component: string
-  status: 'unknown' | 'calibrated' | 'calibrating'
+  status: 'unknown' | 'calibrated' | 'calibrating' | 'failed'
   success: boolean
   message: string
   timestamp: string
@@ -32,7 +32,7 @@ export interface UserCalibration {
   accountId: string
   uid: string
   component: string
-  status: 'unknown' | 'calibrated' | 'calibrating'
+  status: 'unknown' | 'calibrated' | 'calibrating' | 'failed'
   success: boolean
   message: string
   timestamp: string
@@ -49,7 +49,7 @@ class CalibrationService {
     accountId: string,
     uid: string,
     component: string,
-    status: 'unknown' | 'calibrated' | 'calibrating',
+    status: 'unknown' | 'calibrated' | 'calibrating' | 'failed',
     success: boolean,
     message: string
   ): Promise<boolean> {
@@ -81,7 +81,7 @@ class CalibrationService {
       await setDoc(calibrationDocRef, calibrationData, { merge: true })
       return true
     } catch (error) {
-      console.error('❌ Error saving calibration result:', error)
+      console.error('Error saving calibration result:', error)
       return false
     }
   }
@@ -117,7 +117,7 @@ class CalibrationService {
           success: calibrationData.success,
           message: calibrationData.message,
           timestamp: calibrationData.timestamp,
-          createdAt: calibrationData.timestamp // Use timestamp as createdAt since we don't store separate createdAt
+          createdAt: calibrationData.timestamp
         })
       })
       
@@ -127,7 +127,7 @@ class CalibrationService {
       
       return limitedCalibrations
     } catch (error) {
-      console.error('❌ Error fetching calibration data:', error)
+      console.error('Error fetching calibration data:', error)
       return []
     }
   }
@@ -164,7 +164,7 @@ class CalibrationService {
         createdAt: calibrationData.timestamp // Use timestamp as createdAt since we don't store separate createdAt
       }
     } catch (error) {
-      console.error('❌ Error fetching component calibration:', error)
+      console.error('Error fetching component calibration:', error)
       return null
     }
   }
@@ -177,7 +177,7 @@ class CalibrationService {
       const uid = await userService.getUIDByAccountId(accountId)
       return uid
     } catch (error) {
-      console.error('❌ Error getting UID by account ID:', error)
+      console.error('Error getting UID by account ID:', error)
       return null
     }
   }
@@ -189,7 +189,7 @@ class CalibrationService {
     try {
       return await userService.ensureUserConfigurationHasUID(accountId)
     } catch (error) {
-      console.error('❌ Error ensuring user has UID:', error)
+      console.error('Error ensuring user has UID:', error)
       return false
     }
   }

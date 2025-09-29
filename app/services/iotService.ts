@@ -47,13 +47,6 @@ class IoTService {
     const path = host === 'localhost' ? '' : '/ws'
     this.wsUrl = `${protocol}://${host}:${port}${path}`
     
-    // Debug logging
-    console.log('🔍 IoT Service Configuration:')
-    console.log('  Host:', host)
-    console.log('  Port:', port)
-    console.log('  Protocol:', protocol)
-    console.log('  Path:', path)
-    console.log('  Full URL:', this.wsUrl)
   }
 
   // Connection Management
@@ -83,7 +76,6 @@ class IoTService {
         }
 
         this.websocket.onclose = (event) => {
-          console.log('🔌 WebSocket connection closed:', event.code, event.reason)
           this.connectionStatus = false
           this.websocket = null
           this.emit('disconnected')
@@ -93,7 +85,6 @@ class IoTService {
         }
 
         this.websocket.onerror = (error) => {
-          console.log('⚠️ WebSocket error (this is normal during connection):', error)
           // Don't reject immediately - let onopen/onclose handle the actual connection state
         }
 
@@ -317,13 +308,11 @@ class IoTService {
   private attemptReconnect() {
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++
-      console.log(`🔄 Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`)
       
       setTimeout(() => {
         this.connect().catch(console.error)
       }, this.reconnectDelay * this.reconnectAttempts)
     } else {
-      console.log('❌ Max reconnection attempts reached')
       this.emit('reconnectFailed')
     }
   }

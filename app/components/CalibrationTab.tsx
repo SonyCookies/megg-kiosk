@@ -15,7 +15,7 @@ interface CalibrationTabProps {
   onHandleNema23Calibration: () => void
   onHandleSG90Calibration: () => void
   onHandleMG996RCalibration: () => void
-  showToaster: (type: 'success' | 'error' | 'info' | 'warning', message: string) => void
+  showToaster: (type: 'success' | 'error' | 'info', message: string) => void
   onResetCalibrationState: (component: string) => void
   iotConnected: boolean
   hasAccountId: boolean
@@ -45,6 +45,7 @@ export default function CalibrationTab({
   hasAccountId,
   calibrationStatus
 }: CalibrationTabProps) {
+
 
   const formatLastCalibration = (timestamp: string | null) => {
     if (!timestamp) return null
@@ -81,7 +82,7 @@ export default function CalibrationTab({
     switch (status) {
       case 'calibrated': return 'text-green-400'
       case 'calibrating': return 'text-yellow-400'
-      case 'unknown': return 'text-gray-400'
+      case 'unknown': return 'text-gray-400' // Show not calibrated in gray
       default: return 'text-gray-400'
     }
   }
@@ -90,7 +91,7 @@ export default function CalibrationTab({
     switch (status) {
       case 'calibrated': return '✅'
       case 'calibrating': return '🔄'
-      case 'unknown': return '❓'
+      case 'unknown': return '⏳' // Show not calibrated with hourglass
       default: return '❓'
     }
   }
@@ -140,7 +141,9 @@ export default function CalibrationTab({
             <div className="text-center">
               <div className={`text-xs flex items-center justify-center gap-1 ${getStatusColor(calibrationStatus.UNO.status)}`}>
                 <span>{getStatusIcon(calibrationStatus.UNO.status)}</span>
-                <span className="capitalize">{calibrationStatus.UNO.status}</span>
+                <span className="capitalize">
+                  {calibrationStatus.UNO.status === 'unknown' ? 'Not calibrated yet' : calibrationStatus.UNO.status}
+                </span>
               </div>
               {calibrationStatus.UNO.lastCalibration && (
                 <div className="text-xs text-slate-400 mt-1">
@@ -173,7 +176,9 @@ export default function CalibrationTab({
             <div className="text-center">
               <div className={`text-xs flex items-center justify-center gap-1 ${getStatusColor(calibrationStatus.HX711.status)}`}>
                 <span>{getStatusIcon(calibrationStatus.HX711.status)}</span>
-                <span className="capitalize">{calibrationStatus.HX711.status}</span>
+                <span className="capitalize">
+                  {calibrationStatus.HX711.status === 'unknown' ? 'Not calibrated yet' : calibrationStatus.HX711.status}
+                </span>
               </div>
               {calibrationStatus.HX711.lastCalibration && (
                 <div className="text-xs text-slate-400 mt-1">
@@ -206,7 +211,9 @@ export default function CalibrationTab({
             <div className="text-center">
               <div className={`text-xs flex items-center justify-center gap-1 ${getStatusColor(calibrationStatus.NEMA23.status)}`}>
                 <span>{getStatusIcon(calibrationStatus.NEMA23.status)}</span>
-                <span className="capitalize">{calibrationStatus.NEMA23.status}</span>
+                <span className="capitalize">
+                  {calibrationStatus.NEMA23.status === 'unknown' ? 'Not calibrated yet' : calibrationStatus.NEMA23.status}
+                </span>
               </div>
               {calibrationStatus.NEMA23.lastCalibration && (
                 <div className="text-xs text-slate-400 mt-1">
@@ -239,7 +246,9 @@ export default function CalibrationTab({
             <div className="text-center">
               <div className={`text-xs flex items-center justify-center gap-1 ${getStatusColor(calibrationStatus.SG90.status)}`}>
                 <span>{getStatusIcon(calibrationStatus.SG90.status)}</span>
-                <span className="capitalize">{calibrationStatus.SG90.status}</span>
+                <span className="capitalize">
+                  {calibrationStatus.SG90.status === 'unknown' ? 'Not calibrated yet' : calibrationStatus.SG90.status}
+                </span>
               </div>
               {calibrationStatus.SG90.lastCalibration && (
                 <div className="text-xs text-slate-400 mt-1">
@@ -272,7 +281,9 @@ export default function CalibrationTab({
             <div className="text-center">
               <div className={`text-xs flex items-center justify-center gap-1 ${getStatusColor(calibrationStatus.MG996R.status)}`}>
                 <span>{getStatusIcon(calibrationStatus.MG996R.status)}</span>
-                <span className="capitalize">{calibrationStatus.MG996R.status}</span>
+                <span className="capitalize">
+                  {calibrationStatus.MG996R.status === 'unknown' ? 'Not calibrated yet' : calibrationStatus.MG996R.status}
+                </span>
               </div>
               {calibrationStatus.MG996R.lastCalibration && (
                 <div className="text-xs text-slate-400 mt-1">

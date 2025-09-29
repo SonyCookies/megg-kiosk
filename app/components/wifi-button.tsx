@@ -14,7 +14,6 @@ export default function WiFiButton() {
   const handleWiFiClick = (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    console.log("WiFi button clicked, opening manager")
     setIsWiFiManagerOpen(true)
   }
 
@@ -38,7 +37,6 @@ export default function WiFiButton() {
       <WiFiManager
         isOpen={isWiFiManagerOpen}
         onClose={() => {
-          console.log("Closing WiFi manager")
           setIsWiFiManagerOpen(false)
         }}
       />

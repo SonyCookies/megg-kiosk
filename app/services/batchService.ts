@@ -222,3 +222,4 @@ class BatchService {
 }
 
 export default new BatchService()
+

@@ -16,7 +16,8 @@ import { db } from './libs/firebaseConfig'
 import { collection, query, where, getDocs } from 'firebase/firestore'
 import iotService from './services/iotService'
 import calibrationService from './services/calibrationService'
-import userService from './services/userService'
+import { useAccount } from './services/accountService'
+import { useCalibrationStatus } from './services/calibrationManager'
 import batchService from './services/batchService'
 import { 
   getConfigurationWithFallback, 
@@ -58,13 +59,29 @@ export default function Home() {
   // UI state
   const [isFullscreen, setIsFullscreen] = useState(false)
 
-  // Account states
+  // Account management using clean service
+  const {
+    accountId: currentAccountId,
+    userData,
+    isLoading: isLoadingUser,
+    error: accountError,
+    loadAccount,
+    clearAccount,
+    ensureUID
+  } = useAccount()
+
+  // Calibration status management using clean service
+  const {
+    status: calibrationStatus,
+    updateStatus: updateCalibrationStatus,
+    saveCalibrationResult: saveCalibrationToFirebase,
+    loadFromFirebase: loadCalibrationFromFirebase
+  } = useCalibrationStatus()
+
+  // UI states
   const [showPinModal, setShowPinModal] = useState(false)
   const [pinInput, setPinInput] = useState('')
   const [pinError, setPinError] = useState('')
-  const [currentAccountId, setCurrentAccountId] = useState<string | null>(null)
-  const [userData, setUserData] = useState<any>(null)
-  const [isLoadingUser, setIsLoadingUser] = useState(false)
 
   // Configuration states
   const [showRangeModal, setShowRangeModal] = useState(false)
@@ -118,55 +135,14 @@ export default function Home() {
 
   // IoT connection state
   const [iotConnected, setIotConnected] = useState(false)
-  
-  // Calibration status tracking
-  const [calibrationStatus, setCalibrationStatus] = useState<{
-    UNO: { status: 'unknown' | 'calibrated' | 'calibrating', lastCalibration: string | null }
-    HX711: { status: 'unknown' | 'calibrated' | 'calibrating', lastCalibration: string | null }
-    NEMA23: { status: 'unknown' | 'calibrated' | 'calibrating', lastCalibration: string | null }
-    SG90: { status: 'unknown' | 'calibrated' | 'calibrating', lastCalibration: string | null }
-    MG996R: { status: 'unknown' | 'calibrated' | 'calibrating', lastCalibration: string | null }
-  }>({
-    UNO: { status: 'unknown', lastCalibration: null },
-    HX711: { status: 'unknown', lastCalibration: null },
-    NEMA23: { status: 'unknown', lastCalibration: null },
-    SG90: { status: 'unknown', lastCalibration: null },
-    MG996R: { status: 'unknown', lastCalibration: null }
-  })
 
-  // Load calibration history from Firebase
-  const loadCalibrationHistory = async (accountId: string) => {
-    if (!accountId) return
-    
-    try {
-      const calibrations = await calibrationService.getLatestCalibrations(accountId, 5)
-      
-      // Update calibration status with latest results
-      setCalibrationStatus(prev => {
-        const newStatus = { ...prev }
-        
-        calibrations.forEach(calibration => {
-          if (calibration.component in newStatus) {
-            newStatus[calibration.component as keyof typeof newStatus] = {
-              status: calibration.status,
-              lastCalibration: calibration.timestamp
-            }
-          }
-        })
-        
-        return newStatus
-      })
-    } catch (error) {
-      console.error('❌ Error loading calibration history:', error)
-    }
-  }
-
-  // Load calibration history when account ID changes
+  // Load calibration data when account changes
   useEffect(() => {
     if (currentAccountId) {
-      loadCalibrationHistory(currentAccountId)
+      loadCalibrationFromFirebase(currentAccountId)
     }
-  }, [currentAccountId])
+  }, [currentAccountId, loadCalibrationFromFirebase])
+
 
   // Load batches when account ID changes
   const loadBatches = async (accountId: string) => {
@@ -180,7 +156,7 @@ export default function Home() {
         // setCurrentBatch(batches[0])
       }
     } catch (error) {
-      console.error('❌ Error loading batches:', error)
+      console.error('Error loading batches:', error)
     }
   }
 
@@ -191,65 +167,14 @@ export default function Home() {
     }
   }, [currentAccountId])
 
-  // Periodic sync to ensure account state stays in sync with localStorage
+  // Set initial tab based on account status
   useEffect(() => {
-    const syncInterval = setInterval(() => {
-      const savedAccountId = localStorage.getItem('megg-account-id')
-      if (savedAccountId && !currentAccountId) {
-        setCurrentAccountId(savedAccountId)
-      }
-    }, 1000) // Check every second
-
-    return () => clearInterval(syncInterval)
-  }, [currentAccountId])
-
-  // Load account ID from localStorage on page load
-  useEffect(() => {
-    const loadAccountFromStorage = async () => {
-      try {
-        const savedAccountId = localStorage.getItem('megg-account-id')
-        if (savedAccountId) {
-          setCurrentAccountId(savedAccountId)
-          
-          // Fetch user data and load configuration
-          const userData = await fetchUserData(savedAccountId)
-          
-          if (userData) {
-            await loadConfiguration(savedAccountId)
-            // If account ID exists, go to camera tab
-            setActiveTab('camera')
-          } else {
-            localStorage.removeItem('megg-account-id')
-            setCurrentAccountId(null)
-            // If no account ID, go to account tab
-            setActiveTab('account')
-          }
-        } else {
-          // If no account ID, go to account tab
-          setActiveTab('account')
-        }
-      } catch (error) {
-        console.error('❌ Error loading account from localStorage:', error)
-        // On error, go to account tab
-        setActiveTab('account')
-      }
+    if (currentAccountId && userData) {
+      setActiveTab('camera')
+    } else if (!isLoadingUser) {
+      setActiveTab('account')
     }
-
-    loadAccountFromStorage()
-  }, [])
-
-  // Development helper functions (remove in production)
-  useEffect(() => {
-    if (process.env.NODE_ENV === 'development') {
-      (window as any).debugAccountState = () => {
-        console.log('Account state:', {
-          hasAccountId: !!currentAccountId,
-          hasUserData: !!userData,
-          timestamp: new Date().toISOString()
-        })
-      }
-    }
-  }, [currentAccountId, userData])
+  }, [currentAccountId, userData, isLoadingUser])
 
   // Network status
   const isOnline = useInternetConnection()
@@ -276,28 +201,15 @@ export default function Home() {
                try {
                  const status = await iotService.getSystemStatus()
                  
-                 // Update calibration status from system status
-                 if ((status as any).components) {
-                   setCalibrationStatus(prev => {
-                     const newStatus = { ...prev }
-                     Object.keys((status as any).components).forEach(component => {
-                       const componentKey = component.toUpperCase()
-                       if (prev[componentKey as keyof typeof prev]) {
-                         newStatus[componentKey as keyof typeof prev] = {
-                           status: (status as any).components[component].status || 'unknown',
-                           lastCalibration: (status as any).components[component].last_calibration || null
-                         }
-                       }
-                     })
-                     return newStatus
-                   })
-                 }
+                 // DISABLED: IoT system status update overwrites Firebase data
+                 // We get real calibration data from Firebase, not from IoT system status
+                 // updateCalibrationStatus calls removed to prevent overwriting Firebase data
                } catch (error) {
-                 console.error('❌ Failed to get initial system status:', error)
+                 console.error('Failed to get initial system status:', error)
                }
              }, 2000)
       } catch (error) {
-        console.error('❌ Failed to connect to IoT backend:', error)
+        console.error('Failed to connect to IoT backend:', error)
         setIotConnected(false)
       }
     }
@@ -313,60 +225,51 @@ export default function Home() {
 
     const handleCalibrationResult = async (data: any) => {
       
-      // Update calibration status
+      // Update calibration status in real-time
       if (data.component && data.status) {
-        setCalibrationStatus(prev => {
-          const component = data.component.toUpperCase() // Ensure uppercase
-          const newStatus = {
-            ...prev,
-            [component]: {
-              status: data.status === 'completed' ? 'calibrated' : 
-                     data.status === 'started' ? 'calibrating' : 'unknown',
-              lastCalibration: data.status === 'completed' ? new Date().toISOString() : 
-                             prev[component as keyof typeof prev]?.lastCalibration || null
-            }
-          }
-          return newStatus
-        })
+        const component = data.component.toUpperCase()
+        let frontendStatus: 'unknown' | 'calibrated' | 'calibrating'
+        
+        if (data.status === 'completed') {
+          frontendStatus = 'calibrated'
+        } else if (data.status === 'started') {
+          frontendStatus = 'calibrating'
+        } else {
+          frontendStatus = 'unknown' // For 'failed' or any other status
+        }
+        
+        const timestamp = (data.status === 'completed' || data.status === 'failed') ? 
+                         new Date().toISOString() : undefined
+        
+        updateCalibrationStatus(component, frontendStatus, timestamp)
       }
       
-      // Save calibration result to Firebase using account ID from header
-      // Use localStorage as fallback if currentAccountId is null
-      const accountId = currentAccountId || localStorage.getItem('megg-account-id')
-      
-      if (accountId) {
+      // Save to Firebase if we have an account
+      if (currentAccountId) {
         try {
-          // Get UID using the account ID
-          const uid = await calibrationService.getUIDByAccountId(accountId)
+          const component = data.component.toUpperCase()
+          const status = data.status === 'completed' ? 'calibrated' : 
+                        data.status === 'started' ? 'calibrating' : 'unknown'
           
-          if (uid) {
-            const component = data.component.toUpperCase()
-            const status = data.status === 'completed' ? 'calibrated' : 
-                          data.status === 'started' ? 'calibrating' : 'unknown'
-            
-            await calibrationService.saveCalibrationResult(
-              accountId,
-              uid,
-              component,
-              status,
-              data.success || false,
-              data.message || `${component} calibration ${data.success ? 'completed' : 'failed'}`
-            )
-            
-            // Ensure user configuration has UID
-            await calibrationService.ensureUserHasUID(accountId)
-          } else {
-            showToaster('info', 'Calibration completed but UID not found. Please check account setup.')
-          }
+          await saveCalibrationToFirebase(
+            component,
+            status,
+            data.success || false,
+            data.message || `${component} calibration ${data.success ? 'completed' : 'failed'}`
+          )
+          
+          // Ensure UID exists
+          await ensureUID()
+          
         } catch (error) {
-          console.error('❌ Failed to save calibration result to Firebase:', error)
+          console.error('Failed to save calibration result to Firebase:', error)
           showToaster('error', 'Failed to save calibration result to Firebase.')
         }
       } else {
         showToaster('info', 'Calibration completed! Enter your Account ID to save results to Firebase.')
       }
       
-      // Show real calibration results - no simulation fallbacks
+      // Show user feedback
       if (data.status === 'completed') {
         if (data.success) {
           showToaster('success', data.message || `${data.component} calibration completed successfully`)
@@ -378,8 +281,6 @@ export default function Home() {
         showToaster('error', data.message || `${data.component} calibration failed: ${data.error || 'Unknown error'}`)
         resetCalibrationState(data.component)
       } else if (data.status === 'started') {
-        // Don't show toaster for started status, just update UI
-        console.log(`🔄 ${data.component} calibration started`)
       }
     }
 
@@ -402,7 +303,6 @@ export default function Home() {
 
   const toggleFullscreen = () => {
     setIsFullscreen(!isFullscreen)
-    console.log('Toggling UI fullscreen:', !isFullscreen)
   }
 
   // Account functions
@@ -420,35 +320,22 @@ export default function Home() {
     }, 100)
   }
 
-  const fetchUserData = async (accountId: string) => {
-    try {
-      setIsLoadingUser(true)
-      const usersRef = collection(db, 'users')
-      const q = query(usersRef, where('accountId', '==', accountId))
-      const querySnapshot = await getDocs(q)
-      
-      if (!querySnapshot.empty) {
-        const userDoc = querySnapshot.docs[0]
-        const userData = userDoc.data()
-        setUserData(userData)
-        
-        // Ensure user configuration has UID
-        await calibrationService.ensureUserHasUID(accountId)
-        
-        // Load calibration history for this user
-        await loadCalibrationHistory(accountId)
-        
-        return userData
-      } else {
-        setUserData(null)
-        return null
-      }
-    } catch (error) {
-      console.error('Error fetching user data:', error)
-      setUserData(null)
-      return null
-    } finally {
-      setIsLoadingUser(false)
+  // Account functions using clean service
+  const handlePinSubmit = async () => {
+    if (pinInput.length !== 6) {
+      setPinError('PIN must be 6 digits')
+      return
+    }
+    
+    const accountId = `MEGG-${pinInput}`
+    const success = await loadAccount(accountId)
+    
+    if (success) {
+      setShowPinModal(false)
+      setPinInput('')
+      setPinError('')
+    } else {
+      setPinError('Account ID not found. Please check your ID and try again.')
     }
   }
 
@@ -471,33 +358,6 @@ export default function Home() {
     }
   }
 
-  const handlePinSubmit = async () => {
-    if (pinInput.length !== 6) {
-      setPinError('PIN must be 6 digits')
-      return
-    }
-    
-    // Set the account ID and save to localStorage
-    const accountId = `MEGG-${pinInput}`
-    
-    // Fetch user data from Firebase
-    const userData = await fetchUserData(accountId)
-    
-    if (userData) {
-      setCurrentAccountId(accountId)
-      localStorage.setItem('megg-account-id', accountId)
-      
-      // Load configuration for the logged-in user
-      await loadConfiguration(accountId)
-      
-      // Close the modal
-      setShowPinModal(false)
-      setPinInput('')
-      setPinError('')
-    } else {
-      setPinError('Account ID not found. Please check your ID and try again.')
-    }
-  }
 
   const handlePinChange = (value: string) => {
     // Only allow digits and limit to 6 characters
@@ -507,9 +367,7 @@ export default function Home() {
   }
 
   const clearAccountId = () => {
-    setCurrentAccountId(null)
-    setUserData(null)
-    localStorage.removeItem('megg-account-id')
+    clearAccount()
     // Navigate to account tab when account is cleared
     setActiveTab('account')
   }
@@ -653,7 +511,6 @@ export default function Home() {
         // Reload configuration (will fetch global defaults)
         await loadConfiguration(currentAccountId)
         
-        console.log('Configuration reset to defaults')
       } catch (error) {
         console.error('Error resetting to defaults:', error)
       } finally {
@@ -741,7 +598,7 @@ export default function Home() {
       })
     } else {
       // Get UID for the batch
-      const uid = await userService.getUIDByAccountId(currentAccountId)
+      const uid = await calibrationService.getUIDByAccountId(currentAccountId)
       if (!uid) {
         setBatchIdError('Unable to get user UID. Please check account setup.')
         return
@@ -872,7 +729,6 @@ export default function Home() {
         setIsCalibratingMG996R(false)
         break
       default:
-        console.log('Unknown component:', component)
     }
   }
 
@@ -896,7 +752,7 @@ export default function Home() {
         showToaster('error', `UNO Calibration failed: ${result.error || 'Unknown error'}`)
       }
     } catch (error) {
-      console.error('❌ UNO calibration error:', error)
+      console.error('UNO calibration error:', error)
       setIsCalibratingUno(false)
       showToaster('error', `UNO Calibration failed: ${error instanceof Error ? error.message : 'Connection timeout or server error'}`)
     }
@@ -921,7 +777,7 @@ export default function Home() {
         showToaster('error', `HX711 Calibration failed: ${result.error || 'Unknown error'}`)
       }
     } catch (error) {
-      console.error('❌ HX711 calibration error:', error)
+      console.error('HX711 calibration error:', error)
       setIsCalibratingHX711(false)
       showToaster('error', `HX711 Calibration failed: ${error instanceof Error ? error.message : 'Connection timeout or server error'}`)
     }
@@ -946,7 +802,7 @@ export default function Home() {
         showToaster('error', `NEMA23 Calibration failed: ${result.error || 'Unknown error'}`)
       }
     } catch (error) {
-      console.error('❌ NEMA23 calibration error:', error)
+      console.error('NEMA23 calibration error:', error)
       setIsCalibratingNema23(false)
       showToaster('error', `NEMA23 Calibration failed: ${error instanceof Error ? error.message : 'Connection timeout or server error'}`)
     }
@@ -971,7 +827,7 @@ export default function Home() {
         showToaster('error', `SG90 Calibration failed: ${result.error || 'Unknown error'}`)
       }
     } catch (error) {
-      console.error('❌ SG90 calibration error:', error)
+      console.error('SG90 calibration error:', error)
       setIsCalibratingSG90(false)
       showToaster('error', `SG90 Calibration failed: ${error instanceof Error ? error.message : 'Connection timeout or server error'}`)
     }
@@ -996,7 +852,7 @@ export default function Home() {
         showToaster('error', `MG996R Calibration failed: ${result.error || 'Unknown error'}`)
       }
     } catch (error) {
-      console.error('❌ MG996R calibration error:', error)
+      console.error('MG996R calibration error:', error)
       setIsCalibratingMG996R(false)
       showToaster('error', `MG996R Calibration failed: ${error instanceof Error ? error.message : 'Connection timeout or server error'}`)
     }

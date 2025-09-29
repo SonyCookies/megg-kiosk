@@ -168,7 +168,6 @@ export async function createGlobalDefaultRanges(): Promise<void> {
     }
     
     await setDoc(docRef, globalConfig)
-    console.log('Global default ranges created successfully')
   } catch (error) {
     console.error('Error creating global default ranges:', error)
     throw error
@@ -218,9 +217,7 @@ export async function saveUserConfiguration(accountId: string, eggRanges: EggSiz
       }
     }
     
-    console.log('💾 [ConfigurationService] Saving user configuration with UID:', userConfig.uid)
     await setDoc(docRef, userConfig)
-    console.log('✅ [ConfigurationService] User configuration saved successfully with UID preserved')
   } catch (error) {
     console.error('❌ [ConfigurationService] Error saving user configuration:', error)
     throw error
@@ -237,7 +234,6 @@ export async function deleteUserConfiguration(accountId: string): Promise<void> 
       'metadata.isCustomized': false,
       'metadata.lastModifiedAt': new Date().toISOString()
     })
-    console.log('User configuration reset to defaults')
   } catch (error) {
     console.error('Error resetting user configuration:', error)
     throw error
@@ -331,13 +327,11 @@ export async function saveConfigurationWithFallback(accountId: string, eggRanges
     // Also save to localStorage as backup
     localStorage.setItem('egg-ranges', JSON.stringify(eggRanges))
     
-    console.log('Configuration saved to Firebase and localStorage')
   } catch (error) {
     console.error('Error saving to Firebase, saving to localStorage only:', error)
     
     // Fallback to localStorage only
     localStorage.setItem('egg-ranges', JSON.stringify(eggRanges))
-    console.log('Configuration saved to localStorage only')
   }
 }
 
@@ -346,7 +340,6 @@ export async function saveConfigurationWithFallback(accountId: string, eggRanges
  */
 export async function ensureUserConfigurationHasUID(accountId: string, uid: string): Promise<boolean> {
   try {
-    console.log('🔍 Checking user configuration for UID:', accountId)
     
     const docRef = doc(db, 'user_configurations', accountId)
     const docSnap = await getDoc(docRef)
@@ -356,21 +349,17 @@ export async function ensureUserConfigurationHasUID(accountId: string, uid: stri
       
       // Check if UID is missing or different
       if (!userConfig.uid || userConfig.uid !== uid) {
-        console.log('📝 Adding/updating UID in user configuration')
         
         await updateDoc(docRef, {
           uid: uid,
           'metadata.lastModifiedAt': new Date().toISOString()
         })
         
-        console.log('✅ UID added to user configuration')
         return true
       } else {
-        console.log('✅ User configuration already has correct UID')
         return true
       }
     } else {
-      console.log('⚠️ User configuration not found, will be created when needed')
       return true
     }
   } catch (error) {
