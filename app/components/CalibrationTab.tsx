@@ -20,11 +20,11 @@ interface CalibrationTabProps {
   iotConnected: boolean
   hasAccountId: boolean
   calibrationStatus: {
-    UNO: { status: 'unknown' | 'calibrated' | 'calibrating', lastCalibration: string | null }
-    HX711: { status: 'unknown' | 'calibrated' | 'calibrating', lastCalibration: string | null }
-    NEMA23: { status: 'unknown' | 'calibrated' | 'calibrating', lastCalibration: string | null }
-    SG90: { status: 'unknown' | 'calibrated' | 'calibrating', lastCalibration: string | null }
-    MG996R: { status: 'unknown' | 'calibrated' | 'calibrating', lastCalibration: string | null }
+    UNO: { status: 'unknown' | 'calibrated' | 'calibrating' | 'failed', lastCalibration: string | null }
+    HX711: { status: 'unknown' | 'calibrated' | 'calibrating' | 'failed', lastCalibration: string | null }
+    NEMA23: { status: 'unknown' | 'calibrated' | 'calibrating' | 'failed', lastCalibration: string | null }
+    SG90: { status: 'unknown' | 'calibrated' | 'calibrating' | 'failed', lastCalibration: string | null }
+    MG996R: { status: 'unknown' | 'calibrated' | 'calibrating' | 'failed', lastCalibration: string | null }
   }
 }
 
@@ -46,6 +46,22 @@ export default function CalibrationTab({
   calibrationStatus
 }: CalibrationTabProps) {
 
+
+  if (!iotConnected) {
+    return (
+      <div className="h-full overflow-y-auto p-3">
+        <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl p-4 border border-slate-600/30 shadow-lg">
+          <div className="mb-2">
+            <h3 className="text-lg font-semibold text-white">Hardware Calibration</h3>
+          </div>
+          <div className="py-12 text-center text-slate-300">
+            <div className="text-xl font-semibold mb-2">IoT backend is offline</div>
+            <div className="text-sm">Connect to IoT to access Hardware Calibration.</div>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   const formatLastCalibration = (timestamp: string | null) => {
     if (!timestamp) return null
@@ -82,6 +98,7 @@ export default function CalibrationTab({
     switch (status) {
       case 'calibrated': return 'text-green-400'
       case 'calibrating': return 'text-yellow-400'
+      case 'failed': return 'text-red-400'
       case 'unknown': return 'text-gray-400' // Show not calibrated in gray
       default: return 'text-gray-400'
     }
@@ -91,6 +108,7 @@ export default function CalibrationTab({
     switch (status) {
       case 'calibrated': return '✅'
       case 'calibrating': return '🔄'
+      case 'failed': return '❌'
       case 'unknown': return '⏳' // Show not calibrated with hourglass
       default: return '❓'
     }

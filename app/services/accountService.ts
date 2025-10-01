@@ -21,7 +21,10 @@ class AccountService {
   }
 
   constructor() {
-    this.initializeAccount()
+    // Only initialize in browser environment
+    if (typeof window !== 'undefined') {
+      this.initializeAccount()
+    }
   }
 
   // Subscribe to account state changes
@@ -51,9 +54,18 @@ class AccountService {
     try {
       this.setState({ isLoading: true, error: null })
       
-      const savedAccountId = localStorage.getItem('megg-account-id')
-      if (savedAccountId) {
-        await this.loadAccount(savedAccountId)
+      // Only access localStorage in browser environment
+      if (typeof window !== 'undefined') {
+        const savedAccountId = localStorage.getItem('megg-account-id')
+        if (savedAccountId) {
+          await this.loadAccount(savedAccountId)
+        } else {
+          this.setState({ 
+            accountId: null, 
+            userData: null, 
+            isLoading: false 
+          })
+        }
       } else {
         this.setState({ 
           accountId: null, 
@@ -133,7 +145,10 @@ class AccountService {
 
   // Get account ID (with fallback to localStorage)
   getAccountId(): string | null {
-    return this.state.accountId || localStorage.getItem('megg-account-id')
+    if (typeof window !== 'undefined') {
+      return this.state.accountId || localStorage.getItem('megg-account-id')
+    }
+    return this.state.accountId
   }
 
   // Get user data

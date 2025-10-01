@@ -228,14 +228,17 @@ export default function Home() {
       // Update calibration status in real-time
       if (data.component && data.status) {
         const component = data.component.toUpperCase()
-        let frontendStatus: 'unknown' | 'calibrated' | 'calibrating'
+        
+        let frontendStatus: 'unknown' | 'calibrated' | 'calibrating' | 'failed'
         
         if (data.status === 'completed') {
           frontendStatus = 'calibrated'
         } else if (data.status === 'started') {
           frontendStatus = 'calibrating'
-        } else {
-          frontendStatus = 'unknown' // For 'failed' or any other status
+        } else if (data.status === 'failed') {
+          frontendStatus = 'failed'
+      } else {
+          frontendStatus = 'unknown'
         }
         
         const timestamp = (data.status === 'completed' || data.status === 'failed') ? 
@@ -249,7 +252,8 @@ export default function Home() {
         try {
           const component = data.component.toUpperCase()
           const status = data.status === 'completed' ? 'calibrated' : 
-                        data.status === 'started' ? 'calibrating' : 'unknown'
+                        data.status === 'started' ? 'calibrating' : 
+                        data.status === 'failed' ? 'failed' : 'unknown'
           
           await saveCalibrationToFirebase(
             component,
@@ -261,7 +265,7 @@ export default function Home() {
           // Ensure UID exists
           await ensureUID()
           
-        } catch (error) {
+    } catch (error) {
           console.error('Failed to save calibration result to Firebase:', error)
           showToaster('error', 'Failed to save calibration result to Firebase.')
         }
@@ -299,7 +303,7 @@ export default function Home() {
       iotService.off('calibrationResult', handleCalibrationResult)
       iotService.disconnect()
     }
-  }, [])
+  }, [currentAccountId, updateCalibrationStatus, saveCalibrationToFirebase, ensureUID])
 
   const toggleFullscreen = () => {
     setIsFullscreen(!isFullscreen)
@@ -616,7 +620,7 @@ export default function Home() {
         setCurrentBatch(newBatch)
         setBatchStatus('ready')
         setBatchStats(newBatch.stats)
-      } else {
+    } else {
         setBatchIdError('Failed to create batch. Please try again.')
         return
       }

@@ -5,11 +5,11 @@ import calibrationService from './calibrationService'
 import accountService from './accountService'
 
 export interface CalibrationStatus {
-  UNO: { status: 'unknown' | 'calibrated' | 'calibrating', lastCalibration: string | null }
-  HX711: { status: 'unknown' | 'calibrated' | 'calibrating', lastCalibration: string | null }
-  NEMA23: { status: 'unknown' | 'calibrated' | 'calibrating', lastCalibration: string | null }
-  SG90: { status: 'unknown' | 'calibrated' | 'calibrating', lastCalibration: string | null }
-  MG996R: { status: 'unknown' | 'calibrated' | 'calibrating', lastCalibration: string | null }
+  UNO: { status: 'unknown' | 'calibrated' | 'calibrating' | 'failed', lastCalibration: string | null }
+  HX711: { status: 'unknown' | 'calibrated' | 'calibrating' | 'failed', lastCalibration: string | null }
+  NEMA23: { status: 'unknown' | 'calibrated' | 'calibrating' | 'failed', lastCalibration: string | null }
+  SG90: { status: 'unknown' | 'calibrated' | 'calibrating' | 'failed', lastCalibration: string | null }
+  MG996R: { status: 'unknown' | 'calibrated' | 'calibrating' | 'failed', lastCalibration: string | null }
 }
 
 class CalibrationManager {
@@ -49,9 +49,12 @@ class CalibrationManager {
 
   // Initialize calibration status from account
   private async initializeFromAccount() {
-    const accountId = accountService.getAccountId()
-    if (accountId) {
-      await this.loadFromFirebase(accountId)
+    // Only initialize in browser environment
+    if (typeof window !== 'undefined') {
+      const accountId = accountService.getAccountId()
+      if (accountId) {
+        await this.loadFromFirebase(accountId)
+      }
     }
   }
 
@@ -65,11 +68,13 @@ class CalibrationManager {
       calibrations.forEach(calibration => {
         if (calibration.component in newStatus) {
           // Map Firebase status to frontend status
-          let frontendStatus: 'unknown' | 'calibrated' | 'calibrating'
+          let frontendStatus: 'unknown' | 'calibrated' | 'calibrating' | 'failed'
           if (calibration.status === 'calibrated') {
             frontendStatus = 'calibrated'
           } else if (calibration.status === 'calibrating') {
             frontendStatus = 'calibrating'
+          } else if (calibration.status === 'failed') {
+            frontendStatus = 'failed'
           } else {
             frontendStatus = 'unknown'
           }
@@ -90,7 +95,7 @@ class CalibrationManager {
   }
 
   // Update calibration status (for real-time updates)
-  updateStatus(component: string, status: 'unknown' | 'calibrated' | 'calibrating', timestamp?: string) {
+  updateStatus(component: string, status: 'unknown' | 'calibrated' | 'calibrating' | 'failed', timestamp?: string) {
     const newStatus = { ...this.status }
     const componentKey = component.toUpperCase() as keyof CalibrationStatus
     
@@ -126,6 +131,7 @@ class CalibrationManager {
     message: string
   ): Promise<boolean> {
     const accountId = accountService.getAccountId()
+    
     if (!accountId) {
       console.error('No account ID available for saving calibration result')
       return false
@@ -133,6 +139,7 @@ class CalibrationManager {
 
     try {
       const uid = await calibrationService.getUIDByAccountId(accountId)
+      
       if (!uid) {
         console.error('No UID available for saving calibration result')
         return false
@@ -148,8 +155,8 @@ class CalibrationManager {
       )
 
       if (result) {
-        // Update local status
-        this.updateStatus(component, status === 'failed' ? 'unknown' : status as 'unknown' | 'calibrated' | 'calibrating')
+        // Update local status, keep 'failed' visible
+        this.updateStatus(component, status)
       }
 
       return result
@@ -189,7 +196,7 @@ export function useCalibrationStatus() {
     return unsubscribe
   }, [])
 
-  const updateStatus = useCallback((component: string, status: 'unknown' | 'calibrated' | 'calibrating', timestamp?: string) => {
+  const updateStatus = useCallback((component: string, status: 'unknown' | 'calibrated' | 'calibrating' | 'failed', timestamp?: string) => {
     calibrationManager.updateStatus(component, status, timestamp)
   }, [])
 

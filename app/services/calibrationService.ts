@@ -57,14 +57,15 @@ class CalibrationService {
       // Get existing calibration document for this account
       const calibrationDocRef = doc(db, this.collectionName, accountId)
       const existingDoc = await getDoc(calibrationDocRef)
-      const existingData = existingDoc.exists() ? existingDoc.data() : {}
+      const existingData = existingDoc.exists() ? existingDoc.data() as any : {}
+      const existingCalibrations = (existingData && existingData.calibrations) ? existingData.calibrations : {}
 
       // Create calibration data with accountId and uid
       const calibrationData = {
         accountId,
         uid,
         calibrations: {
-          ...existingData.calibrations,
+          ...existingCalibrations,
           [component]: {
             status,
             success,
@@ -74,7 +75,7 @@ class CalibrationService {
         },
         metadata: {
           lastModifiedAt: new Date().toISOString(),
-          totalCalibrations: Object.keys({ ...existingData.calibrations, [component]: true }).length
+          totalCalibrations: Object.keys({ ...existingCalibrations, [component]: true }).length
         }
       }
 
