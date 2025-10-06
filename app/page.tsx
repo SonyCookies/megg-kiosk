@@ -8,7 +8,8 @@ import {
   User,
   Package,
   Settings,
-  Target
+  Target,
+  RefreshCw
 } from "lucide-react"
 
 import { useInternetConnection, useWebSocket } from "./contexts/NetworkContext"
@@ -47,6 +48,7 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<'camera' | 'configuration' | 'account' | 'batch' | 'calibration'>('camera')
   const [isProcessing, setIsProcessing] = useState(false)
   const [systemPhase, setSystemPhase] = useState<'idle' | 'getting_ready' | 'load_eggs' | 'ready_to_process' | 'processing'>('idle')
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const [processingStats, setProcessingStats] = useState({
     totalProcessed: 0,
     goodEggs: 0,
@@ -715,6 +717,17 @@ export default function Home() {
     }, 4000)
   }
 
+  const handleRefresh = () => {
+    if (isRefreshing) return
+    setIsRefreshing(true)
+    showToaster('info', 'Refreshing...')
+    setTimeout(() => {
+      if (typeof window !== 'undefined') {
+        window.location.reload()
+      }
+    }, 150)
+  }
+
   const resetCalibrationState = (component: string) => {
     switch (component) {
       case 'UNO':
@@ -1077,6 +1090,15 @@ export default function Home() {
         toaster={toaster}
         onSetToaster={setToaster}
       />
+
+      {/* Floating Refresh Button (FAB) */}
+      <button
+        onClick={handleRefresh}
+        aria-label="Refresh"
+        className="fixed bottom-4 right-4 z-50 rounded-full bg-blue-600 hover:bg-blue-700 text-white shadow-lg hover:shadow-xl transition-all duration-200 p-3 focus:outline-none focus:ring-2 focus:ring-blue-400"
+      >
+        <RefreshCw className={`h-6 w-6 ${isRefreshing ? 'animate-spin' : ''}`} />
+      </button>
       </div>
     )
   }
