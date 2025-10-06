@@ -32,7 +32,6 @@ export default function HX711CalibrationModal({
     if (!isOpen) {
       setCurrentWeight(null)
       setWeightError(null)
-      setWeightInput("23")
       setCalibrationStep('input')
       setCalibrationMessage("")
       setIsInitialLoad(true)
@@ -40,6 +39,14 @@ export default function HX711CalibrationModal({
       setReceivedDoneMsg(false)
       return
     }
+
+    // When opening modal, prefill weight from localStorage if available
+    try {
+      const saved = localStorage.getItem('hx711_last_weight')
+      if (saved && !isNaN(parseFloat(saved))) {
+        setWeightInput(saved)
+      }
+    } catch (_) {}
 
     const pollWeight = async () => {
       try {
@@ -155,6 +162,10 @@ export default function HX711CalibrationModal({
         if (!receivedDoneMsg) {
           setCalibrationMessage(`Calibration completed successfully with ${weight}g`)
         }
+        // Persist last calibrated weight
+        try {
+          localStorage.setItem('hx711_last_weight', String(weight))
+        } catch (_) {}
         setTimeout(() => {
           onCalibrationComplete(true, `HX711 calibrated with ${weight}g`)
           onClose()
