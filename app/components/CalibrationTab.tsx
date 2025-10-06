@@ -1,8 +1,8 @@
 "use client"
 
-import React from "react"
+import React, { useState } from "react"
 import { Loader2 } from "lucide-react"
-import iotService from "../services/iotService"
+import HX711CalibrationModal from "./HX711CalibrationModal"
 
 interface CalibrationTabProps {
   isCalibratingUno: boolean
@@ -45,7 +45,7 @@ export default function CalibrationTab({
   hasAccountId,
   calibrationStatus
 }: CalibrationTabProps) {
-
+  const [showHX711Modal, setShowHX711Modal] = useState(false)
 
   if (!iotConnected) {
     return (
@@ -119,11 +119,30 @@ export default function CalibrationTab({
       showToaster('error', 'IoT Backend not connected. Please check connection.')
       return
     }
-    // Start calibration immediately - account ID check will happen when saving result
+    // For HX711, show modal instead of direct calibration
+    if (component === 'HX711') {
+      setShowHX711Modal(true)
+      return
+    }
+    // Start calibration immediately for other components
     calibrationFunction()
   }
+
+  const handleHX711CalibrationComplete = (success: boolean, message: string) => {
+    if (success) {
+      showToaster('success', message)
+    } else {
+      showToaster('error', message)
+    }
+  }
   return (
-    <div className="h-full overflow-y-auto p-3">
+    <>
+      <HX711CalibrationModal
+        isOpen={showHX711Modal}
+        onClose={() => setShowHX711Modal(false)}
+        onCalibrationComplete={handleHX711CalibrationComplete}
+      />
+      <div className="h-full overflow-y-auto p-3">
       <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl p-4 border border-slate-600/30 shadow-lg">
         {/* Header */}
         <div className="mb-4">
@@ -313,5 +332,6 @@ export default function CalibrationTab({
         </div>
       </div>
     </div>
+    </>
   )
 }

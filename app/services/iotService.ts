@@ -29,6 +29,14 @@ export interface SystemStatus {
   timestamp: string
 }
 
+export interface WeightReading {
+  success: boolean
+  weight?: number
+  unit?: string
+  timestamp?: string
+  error?: string
+}
+
 class IoTService {
   private websocket: WebSocket | null = null
   private wsUrl: string
@@ -120,11 +128,20 @@ class IoTService {
       case 'calibration_result':
         this.emit('calibrationResult', data)
         break
+      case 'calibration_progress':
+        this.emit('calibrationProgress', data)
+        break
       case 'arduino_data':
         this.emit('arduinoData', data)
         break
       case 'system_status':
         this.emit('systemStatus', data)
+        break
+      case 'weightReading':
+        this.emit('weightReading', data)
+        break
+      case 'weight_reading':
+        this.emit('weightReading', data)
         break
       case 'connection':
         break
@@ -224,6 +241,44 @@ class IoTService {
     }
   }
 
+  async calibrateHX711WithWeight(weight: number): Promise<CalibrationResponse> {
+    try {
+      // Check if connected before sending request
+      if (!this.isConnected()) {
+        throw new Error('WebSocket not connected to IoT backend')
+      }
+
+      await this.sendMessage('calibration_request', { 
+        component: 'HX711',
+        weight: weight 
+      })
+      
+      return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          this.off('calibrationResult', handler)
+          reject(new Error(`HX711 calibration timeout - no response from IoT backend`))
+        }, 30000) // 30 second timeout
+
+        const handler = (data: any) => {
+          if (data.component === 'HX711') {
+            clearTimeout(timeout)
+            this.off('calibrationResult', handler)
+            resolve(data)
+          }
+        }
+
+        this.on('calibrationResult', handler)
+      })
+    } catch (error) {
+      console.error('HX711 calibration request failed:', error)
+      return {
+        success: false,
+        component: 'HX711',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }
+    }
+  }
+
   async getSystemStatus(): Promise<SystemStatus | null> {
     try {
       await this.sendMessage('get_status')
@@ -301,6 +356,38 @@ class IoTService {
     } catch (error) {
       console.error('Failed to send command:', error)
       return false
+    }
+  }
+
+  async getWeight(): Promise<WeightReading> {
+    try {
+      // Check if connected before sending request
+      if (!this.isConnected()) {
+        throw new Error('WebSocket not connected to IoT backend')
+      }
+
+      await this.sendMessage('get_weight')
+      
+      return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          this.off('weightReading', handler)
+          reject(new Error('Weight request timeout - no response from IoT backend'))
+        }, 5000) // 5 second timeout
+
+        const handler = (data: any) => {
+          clearTimeout(timeout)
+          this.off('weightReading', handler)
+          resolve(data)
+        }
+
+        this.on('weightReading', handler)
+      })
+    } catch (error) {
+      console.error('Weight request failed:', error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }
     }
   }
 
