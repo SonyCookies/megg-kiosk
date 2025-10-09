@@ -3,6 +3,8 @@
  * Handles egg defect detection using Roboflow's serverless API
  */
 
+//kiosk-next-frontend/app/services/roboflowService.ts
+
 import { ROBOFLOW_CONFIG, getRoboflowEndpoint, isConfigComplete } from "../config/roboflow"
 
 export interface RoboflowPrediction {
