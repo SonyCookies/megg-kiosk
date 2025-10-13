@@ -9,7 +9,8 @@ import {
   Package,
   Settings,
   Target,
-  RefreshCw
+  RefreshCw,
+  Play
 } from "lucide-react"
 
 import { useInternetConnection, useWebSocket } from "./contexts/NetworkContext"
@@ -36,6 +37,7 @@ import BatchTab from "./components/BatchTab"
 import ConfigurationTab from "./components/ConfigurationTab"
 import CalibrationTab from "./components/CalibrationTab"
 import AccountTab from "./components/AccountTab"
+import MainTab from "./components/MainTab"
 
 // Import modal components
 import PinModal from "./components/PinModal"
@@ -45,9 +47,10 @@ import Toaster from "./components/Toaster"
 
 export default function Home() {
   const [isLoaded, setIsLoaded] = useState(false)
-  const [activeTab, setActiveTab] = useState<'camera' | 'configuration' | 'account' | 'batch' | 'calibration'>('camera')
+  const [activeTab, setActiveTab] = useState<'main' | 'camera' | 'configuration' | 'account' | 'batch' | 'calibration'>('camera')
   const [isProcessing, setIsProcessing] = useState(false)
   const [systemPhase, setSystemPhase] = useState<'idle' | 'getting_ready' | 'load_eggs' | 'ready_to_process' | 'processing'>('idle')
+  const [isSorting, setIsSorting] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [processingStats, setProcessingStats] = useState({
     totalProcessed: 0,
@@ -172,7 +175,7 @@ export default function Home() {
   // Set initial tab based on account status
   useEffect(() => {
     if (currentAccountId && userData) {
-      setActiveTab('camera')
+      setActiveTab('main')
     } else if (!isLoadingUser) {
       setActiveTab('account')
     }
@@ -297,18 +300,119 @@ export default function Home() {
     iotService.on('connected', handleConnected)
     iotService.on('disconnected', handleDisconnected)
     iotService.on('calibrationResult', handleCalibrationResult)
+    iotService.on('sorting_result', onSortingResult)
+    iotService.on('sorting_stop_result', onSortingStopResult)
 
     return () => {
       // Cleanup event listeners
       iotService.off('connected', handleConnected)
       iotService.off('disconnected', handleDisconnected)
       iotService.off('calibrationResult', handleCalibrationResult)
+      iotService.off('sorting_result', onSortingResult)
+      iotService.off('sorting_stop_result', onSortingStopResult)
       iotService.disconnect()
     }
   }, [currentAccountId, updateCalibrationStatus, saveCalibrationToFirebase, ensureUID])
 
+  const onSortingResult = useCallback((data: any) => {
+    // Treat as progress/ack; do not flip isSorting here for continuous operation
+    if (data?.error) {
+      showToaster('error', data.error)
+    } else if (data?.message) {
+      showToaster('info', data.message)
+    }
+  }, [])
+
+  const onSortingStopResult = useCallback((data: any) => {
+    setIsSorting(false)
+    if (data?.success) {
+      showToaster('success', data.message || 'Sorting stopped')
+    } else if (data?.error) {
+      showToaster('error', data.error)
+    }
+  }, [])
+
+  useEffect(() => {
+    iotService.on('sorting_result', onSortingResult)
+    iotService.on('sorting_stop_result', onSortingStopResult)
+    return () => {
+      iotService.off('sorting_result', onSortingResult)
+      iotService.off('sorting_stop_result', onSortingStopResult)
+    }
+  }, [onSortingResult, onSortingStopResult])
+
   const toggleFullscreen = () => {
     setIsFullscreen(!isFullscreen)
+  }
+
+  const handleStartSorting = async () => {
+    if (!iotConnected) {
+      showToaster('error', 'IoT Backend not connected. Please check connection and try again.')
+      return
+    }
+    try {
+      // Require an active batch before starting
+      if (!currentBatch || !currentBatch.id) {
+        showToaster('error', 'No Batch selected. Please create or select a batch in the Batch tab.')
+        setActiveTab('batch')
+        return
+      }
+      // 1) Send configuration first
+      if (!currentAccountId) {
+        showToaster('error', 'No Account ID. Please log in first.')
+        return
+      }
+
+      const uid = await calibrationService.getUIDByAccountId(currentAccountId)
+      const payload = {
+        accountId: currentAccountId,
+        configurations: {
+          eggSizeRanges: eggRanges
+        },
+        metadata: {
+          isCustomized,
+          lastModifiedAt: new Date().toISOString()
+        },
+        uid: uid || undefined
+      }
+
+      const cfgResult = await iotService.sendConfiguration(payload)
+      if (!cfgResult.success) {
+        showToaster('error', `Failed to send configuration${cfgResult.error ? `: ${cfgResult.error}` : ''}`)
+        return
+      }
+      showToaster('success', 'Configuration sent to IoT backend.')
+
+      // 2) Trigger sorting via backend (backend builds START with ranges if available)
+      const startRes = await iotService.startSorting()
+      if (!startRes.success) {
+        showToaster('error', startRes.error || 'Failed to start sorting')
+        return
+      }
+      setIsSorting(true)
+      showToaster('success', startRes.message || 'Sorting started.')
+    } catch (error) {
+      showToaster('error', 'Failed to send START command.')
+    }
+  }
+
+  const handleStopSorting = async () => {
+    if (!iotConnected) {
+      showToaster('error', 'IoT Backend not connected.')
+      return
+    }
+    try {
+      const stopRes = await iotService.stopSorting()
+      if (!stopRes.success) {
+        showToaster('error', stopRes.error || 'Failed to stop sorting')
+        return
+      }
+      // Immediate ack; final result will arrive via broadcast
+      setIsSorting(false)
+      showToaster('info', stopRes.message || 'Stop request sent.')
+    } catch (e) {
+      showToaster('error', 'Failed to send STOP command.')
+    }
   }
 
   // Account functions
@@ -923,6 +1027,8 @@ export default function Home() {
               <div>
                 <h1 className={`font-bold text-white tracking-wide ${isFullscreen ? 'text-sm' : 'text-lg'}`}>MEGG</h1>
                   </div>
+
+      {/* Floating Stop button removed per request */}
                 </div>
 
             {/* Minimal Status Indicators */}
@@ -954,6 +1060,7 @@ export default function Home() {
         <div className={`bg-slate-700/50 backdrop-blur-sm border-b border-slate-600/50 px-3 h-16 ${isFullscreen ? 'hidden' : ''}`}>
           <div className="flex space-x-1 h-full">
             {([
+              { id: 'main' as const, label: 'Main', icon: Play },
               { id: 'camera' as const, label: 'Camera', icon: Camera },
               { id: 'batch' as const, label: 'Batch', icon: Package },
               { id: 'configuration' as const, label: 'Configuration', icon: Settings },
@@ -962,7 +1069,7 @@ export default function Home() {
             ] as const).map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as 'camera' | 'batch' | 'configuration' | 'calibration' | 'account')}
+                onClick={() => setActiveTab(tab.id as 'main' | 'camera' | 'batch' | 'configuration' | 'calibration' | 'account')}
                 className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-t-lg transition-all duration-200 ${
                   activeTab === tab.id
                     ? 'bg-blue-600 text-white shadow-lg border-b-2 border-blue-400'
@@ -979,6 +1086,16 @@ export default function Home() {
 
       {/* Main Content - Fixed height for 5" landscape display */}
       <div className={`h-[calc(100vh-5.5rem)] overflow-hidden ${isFullscreen ? 'mt-0 h-[calc(100vh-2rem)]' : 'mt-16'}`}>
+        {activeTab === 'main' && (
+          <MainTab 
+            iotConnected={iotConnected}
+            isSorting={isSorting}
+            onStartSorting={handleStartSorting}
+            onStopSorting={handleStopSorting}
+            currentBatch={currentBatch}
+          />
+        )}
+
         {activeTab === 'camera' && (
           <CameraTab 
             isOnline={isOnline}
@@ -994,7 +1111,7 @@ export default function Home() {
             batchStatus={batchStatus}
             batchStats={batchStats}
             activeStatsView={activeStatsView}
-            onSetActiveTab={(tab: string) => setActiveTab(tab as 'camera' | 'batch' | 'configuration' | 'calibration' | 'account')}
+            onSetActiveTab={(tab: string) => setActiveTab(tab as 'main' | 'camera' | 'batch' | 'configuration' | 'calibration' | 'account')}
             onShowCreateBatchModal={() => setShowCreateBatchModal(true)}
             onResetBatch={resetBatch}
             onToggleStatsView={toggleStatsView}

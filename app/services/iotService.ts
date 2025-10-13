@@ -150,6 +150,66 @@ class IoTService {
     }
   }
 
+  async startSorting(): Promise<{ success: boolean; message?: string; error?: string }> {
+    try {
+      if (!this.isConnected()) {
+        throw new Error('WebSocket not connected to IoT backend')
+      }
+
+      await this.sendMessage('client_command', { command: 'start_sorting' })
+
+      return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          this.off('sorting_result', handler)
+          reject(new Error('Start sorting request timeout'))
+        }, 5000)
+
+        const handler = (data: any) => {
+          if (data.type === 'sorting_result') {
+            clearTimeout(timeout)
+            this.off('sorting_result', handler)
+            resolve({ success: !!data.success, message: data.message, error: data.error })
+          }
+        }
+
+        this.on('sorting_result', handler)
+      })
+    } catch (error) {
+      console.error('Failed to start sorting:', error)
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+    }
+  }
+
+  async stopSorting(): Promise<{ success: boolean; message?: string; error?: string }> {
+    try {
+      if (!this.isConnected()) {
+        throw new Error('WebSocket not connected to IoT backend')
+      }
+
+      await this.sendMessage('client_command', { command: 'stop_sorting' })
+
+      return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          this.off('sorting_stop_result', handler)
+          reject(new Error('Stop sorting request timeout'))
+        }, 5000)
+
+        const handler = (data: any) => {
+          if (data.type === 'sorting_stop_result') {
+            clearTimeout(timeout)
+            this.off('sorting_stop_result', handler)
+            resolve({ success: !!data.success, message: data.message, error: data.error })
+          }
+        }
+
+        this.on('sorting_stop_result', handler)
+      })
+    } catch (error) {
+      console.error('Failed to stop sorting:', error)
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+    }
+  }
+
   // Event System
   on(event: string, callback: Function) {
     if (!this.messageHandlers.has(event)) {
@@ -204,6 +264,41 @@ class IoTService {
     }
 
     this.websocket!.send(JSON.stringify(message))
+  }
+
+  async sendConfiguration(payload: {
+    accountId: string
+    configurations: any
+    metadata?: any
+    uid?: string
+  }): Promise<{ success: boolean; accountId?: string; error?: string }> {
+    try {
+      if (!this.isConnected()) {
+        throw new Error('WebSocket not connected to IoT backend')
+      }
+
+      await this.sendMessage('set_configuration', payload)
+
+      return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          this.off('configuration_result', handler)
+          reject(new Error('Configuration request timeout'))
+        }, 5000)
+
+        const handler = (data: any) => {
+          if (data.type === 'configuration_result') {
+            clearTimeout(timeout)
+            this.off('configuration_result', handler)
+            resolve({ success: !!data.success, accountId: data.accountId, error: data.error })
+          }
+        }
+
+        this.on('configuration_result', handler)
+      })
+    } catch (error) {
+      console.error('Failed to send configuration:', error)
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+    }
   }
 
   async calibrateComponent(component: string): Promise<CalibrationResponse> {
