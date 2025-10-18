@@ -1,7 +1,7 @@
-// app/page.tsx
+// kiosk-next-frontend/app/page.tsx
 "use client"
 
-import React, { useEffect, useState, useCallback } from "react"
+import React, { useEffect, useState, useCallback, useRef } from "react"
 import Image from "next/image"
 import { 
   Camera, 
@@ -14,13 +14,15 @@ import {
 } from "lucide-react"
 
 import { useInternetConnection, useWebSocket } from "./contexts/NetworkContext"
+import { CameraProvider, useCamera } from "./contexts/CameraContext"
 import { db } from './libs/firebaseConfig'
-import { collection, query, where, getDocs } from 'firebase/firestore'
+import { collection, query, where, getDocs, addDoc } from 'firebase/firestore'
 import iotService from './services/iotService'
 import calibrationService from './services/calibrationService'
 import { useAccount } from './services/accountService'
 import { useCalibrationStatus } from './services/calibrationManager'
 import batchService from './services/batchService'
+import { roboflowService } from './services/roboflowService'
 import { 
   getConfigurationWithFallback, 
   saveConfigurationWithFallback, 
@@ -45,7 +47,7 @@ import RangeModal from "./components/RangeModal"
 import BatchModal from "./components/BatchModal"
 import Toaster from "./components/Toaster"
 
-export default function Home() {
+function HomeInner() {
   const [isLoaded, setIsLoaded] = useState(false)
   const [activeTab, setActiveTab] = useState<'main' | 'camera' | 'configuration' | 'account' | 'batch' | 'calibration'>('camera')
   const [isProcessing, setIsProcessing] = useState(false)
@@ -60,6 +62,14 @@ export default function Home() {
     mediumEggs: 0,
     largeEggs: 0
   })
+  const [recentEggs, setRecentEggs] = useState<{ eggId: string; weight: number | null; size: 'small'|'medium'|'large'|null; quality: 'good'|'dirty'|'cracked' }[]>([])
+  const [eggHistory, setEggHistory] = useState<{ eggId: string; weight: number | null; size: 'small'|'medium'|'large'|null; quality: 'good'|'dirty'|'cracked'; createdAt: string }[]>([])
+  const lastWeightRef = useRef<number | null>(null)
+  const lastProcessedAtRef = useRef<number>(0)
+  const lastProcessedWeightRef = useRef<number | null>(null)
+  const [waitingForQuality, setWaitingForQuality] = useState(false)
+  const pendingWeightRef = useRef<number | null>(null)
+  const { captureFrame, isReady: isCameraReady } = useCamera()
 
   // UI state
   const [isFullscreen, setIsFullscreen] = useState(false)
@@ -301,6 +311,7 @@ export default function Home() {
     iotService.on('disconnected', handleDisconnected)
     iotService.on('calibrationResult', handleCalibrationResult)
     iotService.on('sorting_result', onSortingResult)
+    iotService.on('sorting_progress', onSortingProgress)
     iotService.on('sorting_stop_result', onSortingStopResult)
 
     return () => {
@@ -309,6 +320,7 @@ export default function Home() {
       iotService.off('disconnected', handleDisconnected)
       iotService.off('calibrationResult', handleCalibrationResult)
       iotService.off('sorting_result', onSortingResult)
+      iotService.off('sorting_progress', onSortingProgress)
       iotService.off('sorting_stop_result', onSortingStopResult)
       iotService.disconnect()
     }
@@ -322,6 +334,237 @@ export default function Home() {
       showToaster('info', data.message)
     }
   }, [])
+
+  const persistEgg = useCallback(async (weight: number | null, classification: 'small'|'medium'|'large'|'bad', options?: { bypassDedup?: boolean, qualityLabel?: 'good'|'dirty'|'cracked' }) => {
+    // Dedupe: if same weight processed within 1.5s, ignore
+    const now = Date.now()
+    if (!options?.bypassDedup && typeof weight === 'number' && lastProcessedWeightRef.current === weight && (now - lastProcessedAtRef.current) < 1500) {
+      console.log('[UI] Skipping duplicate egg (same weight within 1.5s):', weight)
+      return
+    }
+
+    const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789'
+    const bytes = (typeof crypto !== 'undefined' && crypto.getRandomValues) ? crypto.getRandomValues(new Uint8Array(8)) : new Uint8Array(8).map(() => Math.floor(Math.random()*256))
+    const eggId = Array.from(bytes).map(b => alphabet[b % alphabet.length]).join('')
+
+    // Determine quality label and compute size from configured ranges
+    // qualityLabel takes precedence and must be one of 'good'|'dirty'|'cracked'
+    const qualityLabel: 'good'|'dirty'|'cracked' = options?.qualityLabel
+      ? options.qualityLabel
+      : (classification === 'bad' ? 'cracked' : 'good')
+    let computedSize: 'small'|'medium'|'large'|null = null
+    if (typeof weight === 'number') {
+      const w = weight
+      // Clamp logic: below small.min => small; above large.max => large
+      if (w < eggRanges.small.min) {
+        computedSize = 'small'
+      } else if (w > eggRanges.large.max) {
+        computedSize = 'large'
+      } else if (w >= eggRanges.small.min && w <= eggRanges.small.max) {
+        computedSize = 'small'
+      } else if (w >= eggRanges.medium.min && w <= eggRanges.medium.max) {
+        computedSize = 'medium'
+      } else if (w >= eggRanges.large.min && w <= eggRanges.large.max) {
+        computedSize = 'large'
+      } else {
+        // If gaps exist due to config, approximate to nearest boundary
+        const distToSmall = Math.abs(w - eggRanges.small.max)
+        const distToMedium = Math.abs(w - eggRanges.medium.max)
+        const distToLarge = Math.abs(w - eggRanges.large.min)
+        const minDist = Math.min(distToSmall, distToMedium, distToLarge)
+        computedSize = minDist === distToSmall ? 'small' : (minDist === distToMedium ? 'medium' : 'large')
+      }
+    }
+
+    // Always update the UI list first so MainTab shows the latest eggs
+    const createdAt = new Date().toISOString()
+    setRecentEggs(prev => {
+      const next = [{ eggId, weight, size: computedSize, quality: qualityLabel }, ...prev].slice(0, 3)
+      console.log('[UI] recentEggs updated:', next)
+      return next
+    })
+    setEggHistory(prev => [{ eggId, weight, size: computedSize, quality: qualityLabel, createdAt }, ...prev])
+
+    // Mark last processed
+    lastProcessedAtRef.current = now
+    lastProcessedWeightRef.current = typeof weight === 'number' ? weight : null
+
+    // If batch/account context is missing, skip persistence and stats, but keep the UI
+    const hasBatch = !!currentBatch?.id
+    const hasAccount = !!currentAccountId
+    console.log('[IoT] persistEgg context', { hasBatch, batchId: currentBatch?.id, hasAccount, accountId: currentAccountId, weight, classification, computedSize, quality: qualityLabel })
+    if (!hasBatch || !hasAccount) {
+      console.warn('[IoT] Skipping persist (no batch/account). Showing in UI only.')
+      return
+    }
+
+    console.log('[IoT] processing egg', { weight, size: computedSize, quality: qualityLabel, accountId: currentAccountId, batchId: currentBatch.id, eggId })
+
+    // Update stats in UI immediately using functional update
+    let nextStats: typeof batchStats
+    setBatchStats(prev => {
+      nextStats = {
+        ...prev,
+        totalEggs: (prev.totalEggs || 0) + 1,
+        smallEggs: prev.smallEggs + (computedSize === 'small' ? 1 : 0),
+        mediumEggs: prev.mediumEggs + (computedSize === 'medium' ? 1 : 0),
+        largeEggs: prev.largeEggs + (computedSize === 'large' ? 1 : 0),
+        goodEggs: (prev.goodEggs || 0) + (qualityLabel === 'good' ? 1 : 0),
+        dirtyEggs: (prev.dirtyEggs || 0) + (qualityLabel === 'dirty' ? 1 : 0),
+        badEggs: (prev.badEggs || 0) + (qualityLabel === 'cracked' ? 1 : 0),
+      }
+      return nextStats
+    })
+
+    // Persist to Firestore (non-blocking UI)
+    try {
+      const eggDoc = {
+        accountId: currentAccountId,
+        batchId: currentBatch.id,
+        eggId,
+        weight,
+        size: computedSize,
+        quality: qualityLabel,
+        createdAt: new Date().toISOString(),
+      }
+      console.log('[Firestore] Saving egg...', eggDoc)
+      const savedRef = await addDoc(collection(db, 'eggs'), eggDoc)
+      console.log('[Firestore] Egg saved with docId:', savedRef.id)
+    } catch (e) {
+      console.error('[Firestore] Failed to save egg document', e)
+    }
+
+    try {
+      console.log('[Firestore] Updating batch stats for', currentBatch.id, nextStats)
+      await batchService.updateBatchStats(currentBatch.id, nextStats)
+      console.log('[Firestore] Batch stats updated for', currentBatch.id)
+    } catch (e) {
+      console.error('[Firestore] Failed to update batch stats', e)
+    }
+  }, [currentBatch, currentAccountId])
+
+  const onEggProcessed = useCallback(async (data: any) => {
+    try {
+      if (!data || !currentBatch?.id || !currentAccountId) return
+      const weight = typeof data.weight === 'number' ? data.weight : null
+      const sizeRaw = (data.size || '').toString().toLowerCase()
+      const size: 'small'|'medium'|'large'|'bad' =
+        sizeRaw.includes('small') ? 'small' :
+        sizeRaw.includes('medium') ? 'medium' :
+        sizeRaw.includes('large') ? 'large' : 'bad'
+      console.log('[IoT] egg_processed received', { weight, size })
+      await persistEgg(weight, size)
+    } catch (err) {
+      console.error('Failed to handle egg_processed:', err)
+    }
+  }, [currentBatch, currentAccountId, persistEgg])
+
+  const onSortingProgress = useCallback(async (data: any) => {
+    if (!data?.message) return
+    const line: string = data.message
+    if (line.startsWith('HX711: Weight measured:')) {
+      // e.g., HX711: Weight measured: 221.45 g
+      const parts = line.split(':').pop()!.trim().split(' ')
+      const w = parseFloat(parts[0])
+      if (!isNaN(w)) {
+        lastWeightRef.current = w
+        console.log('[IoT] parsed weight from sorting_progress:', w)
+      }
+    } else if (line.startsWith('SORT: Egg (') && line.includes('classified as')) {
+      // e.g., SORT: Egg (221.45g) classified as BAD
+      const sizeText = line.split('classified as').pop()!.trim().toLowerCase()
+      const size: 'small'|'medium'|'large'|'bad' =
+        sizeText.includes('small') ? 'small' :
+        sizeText.includes('medium') ? 'medium' :
+        sizeText.includes('large') ? 'large' : 'bad'
+      const weight = lastWeightRef.current
+      console.log('[IoT] classification detected from sorting_progress:', { weight, size })
+      // New flow: do not persist here; Arduino will wait for QUALITY decision
+      // We only store the latest weight; size will be computed from ranges during persist
+    } else if (line.startsWith('SORT_READY')) {
+      // Arduino is waiting for QUALITY from frontend
+      pendingWeightRef.current = lastWeightRef.current
+      setWaitingForQuality(true)
+      console.log('[IoT] SORT_READY received. Waiting for QUALITY decision. Pending weight:', pendingWeightRef.current)
+    }
+  }, [persistEgg])
+
+  const sendQualityDecision = useCallback(async (quality: 'GOOD'|'BAD') => {
+    try {
+      if (!iotService.isConnected()) {
+        showToaster('error', 'IoT Backend not connected. Cannot send QUALITY.')
+        return
+      }
+      // Send QUALITY command to IoT backend (Arduino will continue flow)
+      const ok = await iotService.sendQuality(quality)
+      if (!ok) {
+        showToaster('error', 'Failed to send QUALITY command.')
+        return
+      }
+      const weight = typeof pendingWeightRef.current === 'number' ? pendingWeightRef.current : null
+      // Persist after decision: provide explicit quality label mapping for DB
+      // GOOD -> 'good'; BAD -> caller should pass 'dirty' or 'cracked' via an overload helper; default to 'cracked' when unspecified
+      const qualityLabel: 'good'|'dirty'|'cracked' = quality === 'BAD' ? 'cracked' : 'good'
+      await persistEgg(weight, quality === 'BAD' ? 'bad' : 'small', { qualityLabel })
+      setWaitingForQuality(false)
+      pendingWeightRef.current = null
+      showToaster('success', `QUALITY ${quality} sent`)
+    } catch (err) {
+      console.error('Failed to handle QUALITY decision:', err)
+      showToaster('error', 'Failed to handle QUALITY decision')
+    }
+  }, [persistEgg, iotService])
+  // Auto quality decision flow when waitingForQuality using CameraTab feed
+  useEffect(() => {
+    let cancelled = false
+    const run = async () => {
+      if (!waitingForQuality) return
+      if (!isCameraReady) {
+        showToaster('error', 'Camera not ready for automatic quality check. Open Camera tab to enable.')
+        return
+      }
+      try {
+        const img = captureFrame()
+        if (!img) return
+        const result = await roboflowService.predictDefect(img)
+        if (cancelled || !result) return
+        const pred = (result.prediction || '').toLowerCase()
+        if (pred === 'good') {
+          await sendQualityDecision('GOOD')
+        } else if (pred === 'cracked') {
+          const weight = typeof pendingWeightRef.current === 'number' ? pendingWeightRef.current : null
+          const ok = await iotService.sendQuality('BAD')
+          if (ok) {
+            await persistEgg(weight, 'bad', { qualityLabel: 'cracked' })
+            setWaitingForQuality(false)
+            pendingWeightRef.current = null
+            showToaster('success', 'QUALITY BAD (CRACKED) sent')
+          } else {
+            showToaster('error', 'Failed to send QUALITY command.')
+          }
+        } else if (pred === 'dirty') {
+          const weight = typeof pendingWeightRef.current === 'number' ? pendingWeightRef.current : null
+          const ok = await iotService.sendQuality('BAD')
+          if (ok) {
+            await persistEgg(weight, 'bad', { qualityLabel: 'dirty' })
+            setWaitingForQuality(false)
+            pendingWeightRef.current = null
+            showToaster('success', 'QUALITY BAD (DIRTY) sent')
+          } else {
+            showToaster('error', 'Failed to send QUALITY command.')
+          }
+        } else {
+          console.warn('[Camera] Unknown prediction class:', pred)
+        }
+      } catch (e) {
+        console.error('[Camera] Auto decision failed', e)
+      }
+    }
+    run()
+    return () => {
+      cancelled = true
+    }
+  }, [waitingForQuality, isCameraReady, captureFrame, sendQualityDecision, persistEgg])
 
   const onSortingStopResult = useCallback((data: any) => {
     setIsSorting(false)
@@ -373,7 +616,9 @@ export default function Home() {
           isCustomized,
           lastModifiedAt: new Date().toISOString()
         },
-        uid: uid || undefined
+        uid: uid || undefined,
+        batchId: currentBatch.id,
+        currentBatch: { id: currentBatch.id, name: currentBatch.name }
       }
 
       const cfgResult = await iotService.sendConfiguration(payload)
@@ -1023,7 +1268,7 @@ export default function Home() {
                 width={isFullscreen ? 20 : 32}
                 height={isFullscreen ? 20 : 32}
                   className="object-contain"
-                />
+          />
               <div>
                 <h1 className={`font-bold text-white tracking-wide ${isFullscreen ? 'text-sm' : 'text-lg'}`}>MEGG</h1>
                   </div>
@@ -1093,16 +1338,17 @@ export default function Home() {
             onStartSorting={handleStartSorting}
             onStopSorting={handleStopSorting}
             currentBatch={currentBatch}
+            recentEggs={recentEggs}
+            eggHistory={eggHistory}
           />
         )}
 
-        {activeTab === 'camera' && (
-          <CameraTab 
-            isOnline={isOnline}
-            isFullscreen={isFullscreen}
-            onToggleFullscreen={toggleFullscreen}
-          />
-        )}
+        <CameraTab 
+          isOnline={isOnline}
+          isFullscreen={isFullscreen}
+          onToggleFullscreen={toggleFullscreen}
+          isHidden={activeTab !== 'camera'}
+        />
 
         {activeTab === 'batch' && (
           <BatchTab
@@ -1203,6 +1449,7 @@ export default function Home() {
         onHandleKeyPress={handleKeyPress}
       />
 
+
       <Toaster
         toaster={toaster}
         onSetToaster={setToaster}
@@ -1219,3 +1466,11 @@ export default function Home() {
       </div>
     )
   }
+
+export default function Home() {
+  return (
+    <CameraProvider>
+      <HomeInner />
+    </CameraProvider>
+  )
+}

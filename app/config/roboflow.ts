@@ -24,7 +24,9 @@ export const ROBOFLOW_CONFIG = {
  * Get the full API endpoint URL
  */
 export function getRoboflowEndpoint(): string {
-  return `${ROBOFLOW_CONFIG.API_URL}/infer/workflows/${ROBOFLOW_CONFIG.WORKSPACE_NAME}/${ROBOFLOW_CONFIG.WORKFLOW_ID}`
+  // Workflow endpoint format per Roboflow docs:
+  // https://serverless.roboflow.com/{workspace}/workflows/{workflow}
+  return `${ROBOFLOW_CONFIG.API_URL}/${ROBOFLOW_CONFIG.WORKSPACE_NAME}/workflows/${ROBOFLOW_CONFIG.WORKFLOW_ID}`
 }
 
 /**
@@ -34,7 +36,6 @@ export function isConfigComplete(): boolean {
   return (
     ROBOFLOW_CONFIG.API_KEY.length > 0 &&
     ROBOFLOW_CONFIG.WORKFLOW_ID.length > 0 &&
-    ROBOFLOW_CONFIG.WORKSPACE_NAME.length > 0 &&
-    (ROBOFLOW_CONFIG.API_KEY.startsWith('rf_') || ROBOFLOW_CONFIG.API_KEY.startsWith('xYnojLQ4')) // Support both API key formats
+    ROBOFLOW_CONFIG.WORKSPACE_NAME.length > 0
   )
 }

@@ -111,6 +111,10 @@ class IoTService {
   }
 
   private handleMessage(data: any) {
+    // Debug log for critical messages
+    if (data && (data.type === 'egg_processed' || data.type === 'sorting_progress')) {
+      console.log('[WS]', data.type, data)
+    }
 
     // Update Arduino status
     if (data.type === 'system_status' && data.arduino) {
@@ -450,6 +454,15 @@ class IoTService {
       return true
     } catch (error) {
       console.error('Failed to send command:', error)
+      return false
+    }
+  }
+
+  async sendQuality(quality: 'GOOD' | 'BAD'): Promise<boolean> {
+    try {
+      return await this.sendCommand(`QUALITY ${quality}`)
+    } catch (error) {
+      console.error('Failed to send QUALITY command:', error)
       return false
     }
   }

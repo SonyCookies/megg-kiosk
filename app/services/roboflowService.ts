@@ -55,8 +55,6 @@ export class RoboflowService {
       const blob = new Blob([bytes], { type: 'image/jpeg' })
 
       // Prepare the request
-      const url = getRoboflowEndpoint()
-      
       // Convert blob to base64 for JSON payload
       const base64Image = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader()
@@ -69,28 +67,30 @@ export class RoboflowService {
         reader.onerror = reject
         reader.readAsDataURL(blob)
       })
-      
-      const requestPayload = {
-        api_key: ROBOFLOW_CONFIG.API_KEY,
-        inputs: {
-          image: {
-            type: "base64",
-            value: base64Image
-          }
+      const useClientDirect = typeof window !== 'undefined' && (process.env.NEXT_PUBLIC_ROBOFLOW_CLIENT_DIRECT === '1')
+      let response: Response
+      if (useClientDirect) {
+        // Direct browser call to Roboflow workflow endpoint (exposes NEXT_PUBLIC_ROBOFLOW_API_KEY)
+        const endpoint = `https://serverless.roboflow.com/${ROBOFLOW_CONFIG.WORKSPACE_NAME}/workflows/${ROBOFLOW_CONFIG.WORKFLOW_ID}`
+        const body = {
+          api_key: ROBOFLOW_CONFIG.API_KEY,
+          inputs: { image: { type: 'base64', value: base64Image } }
         }
+        response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(ROBOFLOW_CONFIG.TIMEOUT)
+        })
+      } else {
+        // Default: call our server-side proxy to keep the private key secret
+        response = await fetch('/api/roboflow', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imageBase64: base64Image }),
+          signal: AbortSignal.timeout(ROBOFLOW_CONFIG.TIMEOUT)
+        })
       }
-      
-
-      const requestStartTime = Date.now()
-      
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(requestPayload),
-        signal: AbortSignal.timeout(ROBOFLOW_CONFIG.TIMEOUT)
-      })
 
 
       if (!response.ok) {

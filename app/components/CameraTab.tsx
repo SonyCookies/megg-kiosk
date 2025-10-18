@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useRef, useCallback, useEffect, useState } from "react"
+import { useCamera } from "../contexts/CameraContext"
 import { Camera, CameraIcon, Loader2, XCircle } from "lucide-react"
 import { roboflowService } from "../services/roboflowService"
 
@@ -8,9 +9,10 @@ interface CameraTabProps {
   isOnline: boolean
   isFullscreen: boolean
   onToggleFullscreen: () => void
+  isHidden?: boolean
 }
 
-export default function CameraTab({ isOnline, isFullscreen, onToggleFullscreen }: CameraTabProps) {
+export default function CameraTab({ isOnline, isFullscreen, onToggleFullscreen, isHidden = false }: CameraTabProps) {
   const [isCameraOn, setIsCameraOn] = useState(false)
   const [isCameraLoading, setIsCameraLoading] = useState(false)
   const [cameraError, setCameraError] = useState("")
@@ -20,6 +22,7 @@ export default function CameraTab({ isOnline, isFullscreen, onToggleFullscreen }
   const [captureResult, setCaptureResult] = useState<any>(null)
   const [captureError, setCaptureError] = useState<string | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
+  const { registerVideo } = useCamera()
 
   // Camera functions
   const startCamera = useCallback(async () => {
@@ -59,6 +62,12 @@ export default function CameraTab({ isOnline, isFullscreen, onToggleFullscreen }
       setIsCameraLoading(false)
     }
   }, [])
+
+  // Register/unregister video element with shared CameraContext
+  useEffect(() => {
+    registerVideo(videoRef.current)
+    return () => registerVideo(null)
+  }, [registerVideo])
 
   // Capture image from video and send to Roboflow
   const captureImage = async () => {
@@ -123,7 +132,7 @@ export default function CameraTab({ isOnline, isFullscreen, onToggleFullscreen }
   }, [isFullscreen, isCameraOn])
 
   return (
-    <div className={`h-full flex flex-col ${isFullscreen ? 'p-1' : 'p-3'}`}>
+    <div className={`h-full flex flex-col ${isFullscreen ? 'p-1' : 'p-3'} ${isHidden ? 'fixed w-0 h-0 opacity-0 pointer-events-none -z-50 overflow-hidden' : ''}`}>
       <div className={`bg-slate-800/50 backdrop-blur-sm rounded-xl border border-slate-600/30 shadow-lg flex-1 w-full ${isFullscreen ? 'p-0 rounded-none border-0' : 'p-4'}`}>
         <div className={`bg-slate-900 rounded-lg border border-slate-700/50 relative overflow-hidden w-full ${isFullscreen ? 'h-full rounded-none border-0' : 'aspect-video h-64 sm:h-80 lg:h-96 mb-4'}`}>
           {/* Video */}
