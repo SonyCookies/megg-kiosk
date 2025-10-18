@@ -67,7 +67,9 @@ export class RoboflowService {
         reader.onerror = reject
         reader.readAsDataURL(blob)
       })
-      const useClientDirect = typeof window !== 'undefined' && (process.env.NEXT_PUBLIC_ROBOFLOW_CLIENT_DIRECT === '1')
+      const useClientDirect = typeof window !== 'undefined' 
+        && (process.env.NEXT_PUBLIC_ROBOFLOW_CLIENT_DIRECT === '1') 
+        && !!ROBOFLOW_CONFIG.API_KEY
       let response: Response
       if (useClientDirect) {
         // Direct browser call to Roboflow workflow endpoint (exposes NEXT_PUBLIC_ROBOFLOW_API_KEY)

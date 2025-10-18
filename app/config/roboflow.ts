@@ -5,7 +5,7 @@
 
 export const ROBOFLOW_CONFIG = {
   // Your Roboflow API key (get from https://app.roboflow.com/settings/api)
-  API_KEY: process.env.NEXT_PUBLIC_ROBOFLOW_API_KEY || "xYnojLQ4tPCn60yZmq3l",
+  API_KEY: process.env.ROBOFLOW_API_KEY || process.env.NEXT_PUBLIC_ROBOFLOW_API_KEY || "",
   
   // Your workspace name (usually your username)
   WORKSPACE_NAME: process.env.NEXT_PUBLIC_ROBOFLOW_WORKSPACE || "meggtech",
