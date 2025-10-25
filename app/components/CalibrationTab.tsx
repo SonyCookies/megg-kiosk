@@ -260,10 +260,10 @@ export default function CalibrationTab({
             </div>
           </div>
 
-          {/* SG90 Button */}
+          {/* Loader (replaces SG90) Button */}
           <div className="flex flex-col gap-2">
             <button
-              onClick={() => handleCalibration('SG90', onHandleSG90Calibration)}
+              onClick={() => handleCalibration('LOADER', onHandleSG90Calibration)}
               disabled={isCalibratingSG90 || !iotConnected}
               className={`px-4 py-6 rounded-lg font-semibold text-base transition-all duration-200 flex items-center justify-center gap-2 border border-slate-500/30 ${
                 isCalibratingSG90
@@ -274,22 +274,22 @@ export default function CalibrationTab({
               {isCalibratingSG90 ? (
                 <>
                   <Loader2 className="h-5 w-5 animate-spin" />
-                  <span>SG90</span>
+                  <span>Loader</span>
                 </>
               ) : (
-                <span>SG90</span>
+                <span>Loader</span>
               )}
             </button>
             <div className="text-center">
-              <div className={`text-xs flex items-center justify-center gap-1 ${getStatusColor(calibrationStatus.SG90.status)}`}>
-                <span>{getStatusIcon(calibrationStatus.SG90.status)}</span>
+              <div className={`text-xs flex items-center justify-center gap-1 ${getStatusColor((calibrationStatus as any).LOADER?.status || calibrationStatus.SG90.status)}`}>
+                <span>{getStatusIcon((calibrationStatus as any).LOADER?.status || calibrationStatus.SG90.status)}</span>
                 <span className="capitalize">
-                  {calibrationStatus.SG90.status === 'unknown' ? 'Not calibrated yet' : calibrationStatus.SG90.status}
+                  {(((calibrationStatus as any).LOADER?.status) || calibrationStatus.SG90.status) === 'unknown' ? 'Not calibrated yet' : (((calibrationStatus as any).LOADER?.status) || calibrationStatus.SG90.status)}
                 </span>
               </div>
-              {calibrationStatus.SG90.lastCalibration && (
+              {(((calibrationStatus as any).LOADER?.lastCalibration) || calibrationStatus.SG90.lastCalibration) && (
                 <div className="text-xs text-slate-400 mt-1">
-                  {formatLastCalibration(calibrationStatus.SG90.lastCalibration)}
+                  {formatLastCalibration(((calibrationStatus as any).LOADER?.lastCalibration) || calibrationStatus.SG90.lastCalibration)}
                 </div>
               )}
             </div>

@@ -1,7 +1,7 @@
 // services/iotService.ts - Pure WebSocket IoT Service
 
 export interface CalibrationRequest {
-  component: 'UNO' | 'HX711' | 'NEMA23' | 'SG90' | 'MG996R'
+  component: 'UNO' | 'HX711' | 'NEMA23' | 'SG90' | 'LOADER' | 'MG996R'
 }
 
 export interface CalibrationResponse {
@@ -383,19 +383,27 @@ class IoTService {
       await this.sendMessage('get_status')
       
       return new Promise((resolve, reject) => {
+        const cleanup = () => {
+          this.off('systemStatus', handler)
+          this.off('system_status', handler)
+        }
+
         const timeout = setTimeout(() => {
+          cleanup()
           reject(new Error('Status request timeout'))
-        }, 5000)
+        }, 8000)
 
         const handler = (data: any) => {
-          if (data.type === 'system_status') {
+          if (data && data.type === 'system_status') {
             clearTimeout(timeout)
-            this.off('systemStatus', handler)
+            cleanup()
             resolve(data)
           }
         }
 
+        // Listen to both camelCase alias and raw type for safety
         this.on('systemStatus', handler)
+        this.on('system_status', handler)
       })
     } catch (error) {
       console.error('Failed to get system status:', error)
