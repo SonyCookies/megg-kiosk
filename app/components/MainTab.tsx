@@ -6,13 +6,14 @@ type Props = {
   iotConnected: boolean
   isSorting: boolean
   onStartSorting: () => void
+  onStartPlainSorting?: () => void
   onStopSorting: () => void
   currentBatch: { id?: string; name?: string } | null
   recentEggs?: { eggId: string; weight: number | null; size?: 'small' | 'medium' | 'large' | null; quality?: 'good' | 'dirty' | 'cracked' }[]
   eggHistory?: { eggId: string; weight: number | null; size: 'small' | 'medium' | 'large' | null; quality: 'good' | 'dirty' | 'cracked'; createdAt: string }[]
 }
 
-export default function MainTab({ iotConnected, isSorting, onStartSorting, onStopSorting, currentBatch, recentEggs = [], eggHistory = [] }: Props) {
+export default function MainTab({ iotConnected, isSorting, onStartSorting, onStartPlainSorting, onStopSorting, currentBatch, recentEggs = [], eggHistory = [] }: Props) {
   const [showHistory, setShowHistory] = useState(false)
 
   return (
@@ -44,30 +45,56 @@ export default function MainTab({ iotConnected, isSorting, onStartSorting, onSto
             STOP SORTING
           </button>
         ) : (
-          <button
-            onClick={onStartSorting}
-            disabled={!iotConnected}
-            className={`
-              select-none
-              rounded-2xl
-              px-8
-              py-10
-              text-white
-              font-bold
-              shadow-2xl
-              transition-all
-              duration-200
-              focus:outline-none
-              focus:ring-4
-              ${iotConnected ? 'bg-green-600 hover:bg-green-700 focus:ring-green-400' : 'bg-slate-500 cursor-not-allowed'}
-              text-3xl
-              md:text-4xl
-              w-[90%]
-              max-w-xl
-            `}
-          >
-            START SORTING
-          </button>
+          <div className="w-full flex flex-col items-center gap-4">
+            <button
+              onClick={onStartSorting}
+              disabled={!iotConnected}
+              className={`
+                select-none
+                rounded-2xl
+                px-8
+                py-10
+                text-white
+                font-bold
+                shadow-2xl
+                transition-all
+                duration-200
+                focus:outline-none
+                focus:ring-4
+                ${iotConnected ? 'bg-green-600 hover:bg-green-700 focus:ring-green-400' : 'bg-slate-500 cursor-not-allowed'}
+                text-3xl
+                md:text-4xl
+                w-[90%]
+                max-w-xl
+              `}
+            >
+              START SORTING
+            </button>
+            <button
+              onClick={() => (onStartPlainSorting ? onStartPlainSorting() : undefined)}
+              disabled={!iotConnected}
+              className={`
+                select-none
+                rounded-2xl
+                px-8
+                py-10
+                text-white
+                font-bold
+                shadow-2xl
+                transition-all
+                duration-200
+                focus:outline-none
+                focus:ring-4
+                ${iotConnected ? 'bg-blue-600 hover:bg-blue-700 focus:ring-blue-400' : 'bg-slate-500 cursor-not-allowed'}
+                text-3xl
+                md:text-4xl
+                w-[90%]
+                max-w-xl
+              `}
+            >
+              START PLAIN SORTING
+            </button>
+          </div>
         )}
 
         {/* Logs / History button */}

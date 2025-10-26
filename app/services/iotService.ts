@@ -184,6 +184,36 @@ class IoTService {
     }
   }
 
+  async startPlainSorting(): Promise<{ success: boolean; message?: string; error?: string }> {
+    try {
+      if (!this.isConnected()) {
+        throw new Error('WebSocket not connected to IoT backend')
+      }
+
+      await this.sendMessage('client_command', { command: 'start_plain_sorting' })
+
+      return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          this.off('plain_sorting_result', handler)
+          reject(new Error('Start plain sorting request timeout'))
+        }, 5000)
+
+        const handler = (data: any) => {
+          if (data.type === 'plain_sorting_result') {
+            clearTimeout(timeout)
+            this.off('plain_sorting_result', handler)
+            resolve({ success: !!data.success, message: data.message, error: data.error })
+          }
+        }
+
+        this.on('plain_sorting_result', handler)
+      })
+    } catch (error) {
+      console.error('Failed to start plain sorting:', error)
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+    }
+  }
+
   async stopSorting(): Promise<{ success: boolean; message?: string; error?: string }> {
     try {
       if (!this.isConnected()) {

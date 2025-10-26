@@ -16,7 +16,7 @@ import {
 import { useInternetConnection, useWebSocket } from "./contexts/NetworkContext"
 import { CameraProvider, useCamera } from "./contexts/CameraContext"
 import { db } from './libs/firebaseConfig'
-import { collection, query, where, getDocs, addDoc } from 'firebase/firestore'
+import { collection, query, where, getDocs, doc, setDoc } from 'firebase/firestore'
 import iotService from './services/iotService'
 import calibrationService from './services/calibrationService'
 import { useAccount } from './services/accountService'
@@ -53,6 +53,7 @@ function HomeInner() {
   const [isProcessing, setIsProcessing] = useState(false)
   const [systemPhase, setSystemPhase] = useState<'idle' | 'getting_ready' | 'load_eggs' | 'ready_to_process' | 'processing'>('idle')
   const [isSorting, setIsSorting] = useState(false)
+  const [isPlainSortingMode, setIsPlainSortingMode] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [processingStats, setProcessingStats] = useState({
     totalProcessed: 0,
@@ -311,6 +312,7 @@ function HomeInner() {
     iotService.on('disconnected', handleDisconnected)
     iotService.on('calibrationResult', handleCalibrationResult)
     iotService.on('sorting_result', onSortingResult)
+    iotService.on('plain_sorting_result', onSortingResult)
     iotService.on('sorting_progress', onSortingProgress)
     iotService.on('sorting_stop_result', onSortingStopResult)
 
@@ -320,6 +322,7 @@ function HomeInner() {
       iotService.off('disconnected', handleDisconnected)
       iotService.off('calibrationResult', handleCalibrationResult)
       iotService.off('sorting_result', onSortingResult)
+      iotService.off('plain_sorting_result', onSortingResult)
       iotService.off('sorting_progress', onSortingProgress)
       iotService.off('sorting_stop_result', onSortingStopResult)
       iotService.disconnect()
@@ -427,17 +430,26 @@ function HomeInner() {
         quality: qualityLabel,
         createdAt: new Date().toISOString(),
       }
-      console.log('[Firestore] Saving egg...', eggDoc)
-      const savedRef = await addDoc(collection(db, 'eggs'), eggDoc)
-      console.log('[Firestore] Egg saved with docId:', savedRef.id)
+      console.log('[Firestore] Saving egg (idempotent)...', eggDoc)
+      await setDoc(doc(db, 'eggs', eggId), eggDoc)
+      console.log('[Firestore] Egg saved with fixed docId:', eggId)
     } catch (e) {
       console.error('[Firestore] Failed to save egg document', e)
     }
 
     try {
-      console.log('[Firestore] Updating batch stats for', currentBatch.id, nextStats)
-      await batchService.updateBatchStats(currentBatch.id, nextStats)
-      console.log('[Firestore] Batch stats updated for', currentBatch.id)
+      const deltas = {
+        totalEggs: 1,
+        smallEggs: computedSize === 'small' ? 1 : 0,
+        mediumEggs: computedSize === 'medium' ? 1 : 0,
+        largeEggs: computedSize === 'large' ? 1 : 0,
+        goodEggs: qualityLabel === 'good' ? 1 : 0,
+        dirtyEggs: qualityLabel === 'dirty' ? 1 : 0,
+        badEggs: qualityLabel === 'cracked' ? 1 : 0,
+      }
+      console.log('[Firestore] Incrementing batch stats for', currentBatch.id, deltas)
+      await batchService.incrementBatchStats(currentBatch.id, deltas)
+      console.log('[Firestore] Batch stats increment queued/applied for', currentBatch.id)
     } catch (e) {
       console.error('[Firestore] Failed to update batch stats', e)
     }
@@ -459,9 +471,19 @@ function HomeInner() {
     }
   }, [currentBatch, currentAccountId, persistEgg])
 
+  // Ensure we capture server-driven egg_processed events in both START and START_PLAIN flows
+  useEffect(() => {
+    iotService.on('egg_processed', onEggProcessed)
+    return () => {
+      iotService.off('egg_processed', onEggProcessed)
+    }
+  }, [onEggProcessed])
+
   const onSortingProgress = useCallback(async (data: any) => {
     if (!data?.message) return
     const line: string = data.message
+    // Verbose log for troubleshooting plain mode visibility
+    console.log('[IoT][progress]', line)
     if (line.startsWith('HX711: Weight measured:')) {
       // e.g., HX711: Weight measured: 221.45 g
       const parts = line.split(':').pop()!.trim().split(' ')
@@ -469,25 +491,52 @@ function HomeInner() {
       if (!isNaN(w)) {
         lastWeightRef.current = w
         console.log('[IoT] parsed weight from sorting_progress:', w)
+        // Plain mode fallback: persist on weight event
+        if (isPlainSortingMode) {
+          try {
+            console.log('[Plain] Persisting on HX711 weight event', { weight: w })
+            await persistEgg(w, 'small')
+          } catch (e) {
+            console.error('[Plain] Persist on weight failed', e)
+          }
+        }
       }
-    } else if (line.startsWith('SORT: Egg (') && line.includes('classified as')) {
-      // e.g., SORT: Egg (221.45g) classified as BAD
-      const sizeText = line.split('classified as').pop()!.trim().toLowerCase()
+    } else if (
+      (line.startsWith('SORT: Egg (') && line.includes('classified as')) ||
+      (line.startsWith('SORT:') && line.includes('=>'))
+    ) {
+      // Examples:
+      //  - SORT: Egg (221.45g) classified as BAD
+      //  - SORT: 221.45g => SMALL
+      let sizeText = ''
+      if (line.includes('classified as')) {
+        sizeText = line.split('classified as').pop()!.trim().toLowerCase()
+      } else if (line.includes('=>')) {
+        sizeText = line.split('=>').pop()!.trim().toLowerCase()
+      }
       const size: 'small'|'medium'|'large'|'bad' =
         sizeText.includes('small') ? 'small' :
         sizeText.includes('medium') ? 'medium' :
         sizeText.includes('large') ? 'large' : 'bad'
       const weight = lastWeightRef.current
-      console.log('[IoT] classification detected from sorting_progress:', { weight, size })
-      // New flow: do not persist here; Arduino will wait for QUALITY decision
-      // We only store the latest weight; size will be computed from ranges during persist
+      console.log('[IoT] classification detected from sorting_progress:', { weight, size, plain: isPlainSortingMode })
+      // Plain mode: persist immediately without waiting for QUALITY
+      if (isPlainSortingMode) {
+        try {
+          console.log('[Plain] Persisting egg immediately', { weight, size })
+          await persistEgg(typeof weight === 'number' ? weight : null, size)
+          console.log('[Plain] Persist queued: recentEggs/UI updated and Firebase setDoc/increment queued')
+        } catch (e) {
+          console.error('[UI] Failed to persist egg in plain mode', e)
+        }
+      }
     } else if (line.startsWith('SORT_READY')) {
       // Arduino is waiting for QUALITY from frontend
       pendingWeightRef.current = lastWeightRef.current
       setWaitingForQuality(true)
       console.log('[IoT] SORT_READY received. Waiting for QUALITY decision. Pending weight:', pendingWeightRef.current)
     }
-  }, [persistEgg])
+  }, [persistEgg, isPlainSortingMode])
 
   const sendQualityDecision = useCallback(async (quality: 'GOOD'|'BAD') => {
     try {
@@ -577,9 +626,11 @@ function HomeInner() {
 
   useEffect(() => {
     iotService.on('sorting_result', onSortingResult)
+    iotService.on('plain_sorting_result', onSortingResult)
     iotService.on('sorting_stop_result', onSortingStopResult)
     return () => {
       iotService.off('sorting_result', onSortingResult)
+      iotService.off('plain_sorting_result', onSortingResult)
       iotService.off('sorting_stop_result', onSortingStopResult)
     }
   }, [onSortingResult, onSortingStopResult])
@@ -635,6 +686,7 @@ function HomeInner() {
         return
       }
       setIsSorting(true)
+      setIsPlainSortingMode(false)
       showToaster('success', startRes.message || 'Sorting started.')
     } catch (error) {
       showToaster('error', 'Failed to send START command.')
@@ -654,9 +706,66 @@ function HomeInner() {
       }
       // Immediate ack; final result will arrive via broadcast
       setIsSorting(false)
+      setIsPlainSortingMode(false)
       showToaster('info', stopRes.message || 'Stop request sent.')
     } catch (e) {
       showToaster('error', 'Failed to send STOP command.')
+    }
+  }
+
+  const handleStartPlainSorting = async () => {
+    if (!iotConnected) {
+      showToaster('error', 'IoT Backend not connected. Please check connection and try again.')
+      return
+    }
+    try {
+      if (!currentBatch || !currentBatch.id) {
+        showToaster('error', 'No Batch selected. Please create or select a batch in the Batch tab.')
+        setActiveTab('batch')
+        return
+      }
+      if (!currentAccountId) {
+        showToaster('error', 'No Account ID. Please log in first.')
+        return
+      }
+
+      const uid = await calibrationService.getUIDByAccountId(currentAccountId)
+      const payload = {
+        accountId: currentAccountId,
+        configurations: {
+          eggSizeRanges: eggRanges
+        },
+        metadata: {
+          isCustomized,
+          lastModifiedAt: new Date().toISOString()
+        },
+        uid: uid || undefined,
+        batchId: currentBatch.id,
+        currentBatch: { id: currentBatch.id, name: currentBatch.name }
+      }
+
+      console.log('[Plain] Sending configuration before START_PLAIN', payload)
+      const cfgResult = await iotService.sendConfiguration(payload)
+      if (!cfgResult.success) {
+        showToaster('error', `Failed to send configuration${cfgResult.error ? `: ${cfgResult.error}` : ''}`)
+        return
+      }
+      showToaster('success', 'Configuration sent to IoT backend.')
+      console.log('[Plain] Configuration ack:', cfgResult)
+
+      console.log('[Plain] Triggering START_PLAIN via websocket')
+      const startRes = await iotService.startPlainSorting()
+      if (!startRes.success) {
+        showToaster('error', startRes.error || 'Failed to start plain sorting')
+        return
+      }
+      setIsSorting(true)
+      setIsPlainSortingMode(true)
+      showToaster('success', startRes.message || 'Plain sorting started.')
+      console.log('[Plain] START_PLAIN ack:', startRes)
+    } catch (error) {
+      showToaster('error', 'Failed to send START_PLAIN command.')
+      console.error('[Plain] START_PLAIN failed', error)
     }
   }
 
@@ -1336,6 +1445,7 @@ function HomeInner() {
             iotConnected={iotConnected}
             isSorting={isSorting}
             onStartSorting={handleStartSorting}
+            onStartPlainSorting={handleStartPlainSorting}
             onStopSorting={handleStopSorting}
             currentBatch={currentBatch}
             recentEggs={recentEggs}

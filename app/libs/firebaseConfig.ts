@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app"
-import { getFirestore } from "firebase/firestore"
+import { getFirestore, enableMultiTabIndexedDbPersistence, enableIndexedDbPersistence } from "firebase/firestore"
 import { getStorage } from "firebase/storage"
 
 const firebaseConfig = {
@@ -15,6 +15,11 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig)
 const db = getFirestore(app)
 const storage = getStorage(app)
+
+// Enable offline persistence (non-blocking). Multi-tab first, fallback to single-tab.
+enableMultiTabIndexedDbPersistence(db).catch(() => {
+  enableIndexedDbPersistence(db).catch(() => {})
+})
 
 export { db, storage }
 

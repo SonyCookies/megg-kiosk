@@ -13,7 +13,8 @@ import {
   doc,
   getDoc,
   setDoc,
-  serverTimestamp 
+  serverTimestamp,
+  increment 
 } from 'firebase/firestore'
 import userService from './userService'
 
@@ -116,6 +117,40 @@ class BatchService {
       return true
     } catch (error) {
       console.error('❌ Error updating batch:', error)
+      return false
+    }
+  }
+
+  /**
+   * Atomically increment batch statistics (offline-friendly).
+   */
+  async incrementBatchStats(
+    batchId: string,
+    deltas: Partial<BatchData['stats']>
+  ): Promise<boolean> {
+    try {
+      const batchDocRef = doc(db, this.collectionName, batchId)
+      const updatePayload: Record<string, any> = {
+        updatedAt: new Date().toISOString()
+      }
+
+      const map: Array<keyof BatchData['stats']> = [
+        'totalEggs','smallEggs','mediumEggs','largeEggs','goodEggs','dirtyEggs','badEggs'
+      ]
+
+      for (const key of map) {
+        const delta = (deltas as any)[key]
+        if (typeof delta === 'number' && delta !== 0) {
+          updatePayload[`stats.${key}`] = increment(delta)
+        }
+      }
+
+      if (Object.keys(updatePayload).length > 1) {
+        await updateDoc(batchDocRef, updatePayload)
+      }
+      return true
+    } catch (error) {
+      console.error('❌ Error incrementing batch stats:', error)
       return false
     }
   }
