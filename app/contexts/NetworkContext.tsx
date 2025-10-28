@@ -18,6 +18,7 @@ interface WebSocketContextType {
 
 interface NetworkProviderProps {
   children: ReactNode
+  lanCheckEndpoint?: string
 }
 
 // ==========================================
@@ -30,7 +31,17 @@ const PING_TIMEOUT = 5000
 // ==========================================
 // Context Creation
 // ==========================================
-const InternetConnectionContext = createContext<boolean>(true)
+interface ConnectionStatus {
+  internet: boolean
+  lan: boolean
+}
+
+const defaultConnectionStatus: ConnectionStatus = {
+  internet: true,
+  lan: true
+}
+
+const InternetConnectionContext = createContext<ConnectionStatus>(defaultConnectionStatus)
 const WebSocketContext = createContext<WebSocketContextType | null>(null)
 
 // ==========================================
@@ -48,7 +59,7 @@ const wsLogger = createLogger("WebSocketContext")
 // ==========================================
 // Custom Hooks
 // ==========================================
-export const useInternetConnection = (): boolean => {
+export const useInternetConnection = (): ConnectionStatus => {
   const context = useContext(InternetConnectionContext)
   if (context === undefined) {
     throw new Error("useInternetConnection must be used within a NetworkProvider")
@@ -67,13 +78,19 @@ export const useWebSocket = (): WebSocketContextType => {
 // ==========================================
 // Network Provider Component
 // ==========================================
-export const NetworkProvider = ({ children }: NetworkProviderProps): React.ReactElement => {
+export const NetworkProvider = ({ 
+  children, 
+  lanCheckEndpoint = 'http://localhost:8000/health' // Default LAN check endpoint
+}: NetworkProviderProps): React.ReactElement => {
   // ==========================================
-  // Internet Connection State
+  // Connection State
   // ==========================================
-  const [isOnline, setIsOnline] = useState<boolean>(true)
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({
+    internet: true,
+    lan: true
+  })
   const isCheckingRef = useRef<boolean>(false)
-  const lastOnlineState = useRef<boolean>(true)
+  const lastStatusRef = useRef<ConnectionStatus>({ internet: true, lan: true })
 
   // ==========================================
   // WebSocket State
@@ -85,12 +102,9 @@ export const NetworkProvider = ({ children }: NetworkProviderProps): React.React
   const messageIdCounter = useRef<number>(0)
 
   // ==========================================
-  // Internet Connection Methods
+  // Connection Check Methods
   // ==========================================
-  const checkConnectivity = useCallback(async (): Promise<boolean> => {
-    if (isCheckingRef.current) return false
-    isCheckingRef.current = true
-
+  const checkInternetConnectivity = useCallback(async (): Promise<boolean> => {
     try {
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), PING_TIMEOUT)
@@ -103,12 +117,12 @@ export const NetworkProvider = ({ children }: NetworkProviderProps): React.React
       let isConnected = false
       for (const endpoint of endpoints) {
         try {
-          const response = await fetch(endpoint, {
-            method: "HEAD",
-            mode: "no-cors",
-            signal: controller.signal,
-          })
-          if (response) {
+          const response = await Promise.race([
+            fetch(endpoint, { method: 'HEAD', mode: 'no-cors', cache: 'no-store', signal: controller.signal }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), PING_TIMEOUT))
+          ]) as Response
+
+          if (response.ok || response.status === 0) {
             isConnected = true
             break
           }
@@ -126,30 +140,55 @@ export const NetworkProvider = ({ children }: NetworkProviderProps): React.React
     } finally {
       isCheckingRef.current = false
     }
-  }, [])
+  }, [PING_TIMEOUT])
 
-  const updateOnlineStatus = useCallback(
-    async (navigatorStatus: boolean): Promise<void> => {
-      if (!navigatorStatus) {
-        setIsOnline(false)
-        lastOnlineState.current = false
-        internetLogger.log("Device reports offline")
-        return
+  const checkLanConnectivity = useCallback(async (): Promise<boolean> => {
+    try {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), PING_TIMEOUT)
+
+      const response = await fetch(lanCheckEndpoint, {
+        method: 'GET',
+        cache: 'no-store',
+        signal: controller.signal
+      })
+
+      clearTimeout(timeoutId)
+      return response.ok
+    } catch (error) {
+      return false
+    }
+  }, [lanCheckEndpoint, PING_TIMEOUT])
+
+  const checkConnectivity = useCallback(async (): Promise<void> => {
+    if (isCheckingRef.current) return
+    isCheckingRef.current = true
+
+    try {
+      const [internetStatus, lanStatus] = await Promise.all([
+        checkInternetConnectivity(),
+        checkLanConnectivity()
+      ])
+
+      const newStatus = {
+        internet: internetStatus,
+        lan: lanStatus
       }
 
-      const hasInternet = await checkConnectivity()
-      const wasOffline = !lastOnlineState.current
-      lastOnlineState.current = hasInternet
-
-      setIsOnline(hasInternet)
-      internetLogger.log(`Internet connection status changed to: ${hasInternet ? "online" : "offline"}`)
-
-      if (hasInternet && wasOffline) {
-        internetLogger.log("Connection restored")
+      if (JSON.stringify(lastStatusRef.current) !== JSON.stringify(newStatus)) {
+        setConnectionStatus(newStatus)
+        lastStatusRef.current = newStatus
       }
-    },
-    [checkConnectivity],
-  )
+    } catch (error) {
+      const newStatus = { internet: false, lan: false }
+      if (JSON.stringify(lastStatusRef.current) !== JSON.stringify(newStatus)) {
+        setConnectionStatus(newStatus)
+        lastStatusRef.current = newStatus
+      }
+    } finally {
+      isCheckingRef.current = false
+    }
+  }, [checkInternetConnectivity, checkLanConnectivity])
 
   // ==========================================
   // WebSocket Methods
@@ -228,30 +267,22 @@ export const NetworkProvider = ({ children }: NetworkProviderProps): React.React
 
   // Internet Connection Effect
   useEffect(() => {
-    if (typeof window === "undefined") return
+    checkConnectivity()
 
-    const handleOnline = (): void => {
-      internetLogger.log("Browser 'online' event fired")
-      updateOnlineStatus(true)
-    }
+    const interval = setInterval(checkConnectivity, PING_INTERVAL)
 
-    const handleOffline = (): void => {
-      internetLogger.log("Browser 'offline' event fired")
-      updateOnlineStatus(false)
-    }
+    const handleOnline = () => checkConnectivity()
+    const handleOffline = () => setConnectionStatus({ internet: false, lan: false })
 
-    window.addEventListener("online", handleOnline)
-    window.addEventListener("offline", handleOffline)
-
-    // Initial check
-    updateOnlineStatus(navigator.onLine)
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
 
     return () => {
-      window.removeEventListener("online", handleOnline)
-      window.removeEventListener("offline", handleOffline)
-      internetLogger.log("InternetConnectionProvider unmounted")
+      clearInterval(interval)
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
     }
-  }, [updateOnlineStatus])
+  }, [checkConnectivity])
 
   // WebSocket Effect
   useEffect(() => {
@@ -269,8 +300,10 @@ export const NetworkProvider = ({ children }: NetworkProviderProps): React.React
   // Render
   // ==========================================
   return (
-    <InternetConnectionContext.Provider value={isOnline}>
-      <WebSocketContext.Provider value={{ sendMessage, lastMessage, readyState }}>{children}</WebSocketContext.Provider>
+    <InternetConnectionContext.Provider value={connectionStatus}>
+      <WebSocketContext.Provider value={{ sendMessage, lastMessage, readyState }}>
+        {children}
+      </WebSocketContext.Provider>
     </InternetConnectionContext.Provider>
   )
 }
