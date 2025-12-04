@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import userService from './userService'
 import calibrationService from './calibrationService'
 import kioskSessionService from './kioskSessionService'
+import { notifyKioskConnected, notifyKioskDisconnected, notifyNetworkRecovered } from './notificationService'
 
 export interface AccountState {
   accountId: string | null
@@ -73,6 +74,13 @@ class AccountService {
       try {
         await kioskSessionService.updateHeartbeat(this.state.accountId)
         console.log('✅ Session reactivated after network recovery')
+        
+        // Create notification for network recovery (non-blocking)
+        try {
+          await notifyNetworkRecovered(this.state.accountId)
+        } catch (error) {
+          console.error('Failed to create network recovery notification:', error)
+        }
       } catch (error) {
         console.error('❌ Failed to reactivate session after network recovery:', error)
       }
@@ -171,6 +179,17 @@ class AccountService {
         // Start heartbeat interval (update every 60 seconds)
         this.startHeartbeat(accountId)
         
+        // Create notification for kiosk connection (non-blocking)
+        try {
+          await notifyKioskConnected(
+            accountId,
+            userData.fullname || userData.username || 'User'
+          )
+        } catch (error) {
+          console.error('Failed to create connection notification:', error)
+          // Don't block login if notification fails
+        }
+        
         return true
       } else {
         // Invalid account ID
@@ -216,8 +235,19 @@ class AccountService {
   // Clear account data
   async clearAccount() {
     // End kiosk session in Firebase before clearing
-    if (this.state.accountId) {
+    if (this.state.accountId && this.state.userData) {
       await kioskSessionService.endSession(this.state.accountId)
+      
+      // Create notification for kiosk disconnection (non-blocking)
+      try {
+        await notifyKioskDisconnected(
+          this.state.accountId,
+          this.state.userData.fullname || this.state.userData.username || 'User'
+        )
+      } catch (error) {
+        console.error('Failed to create disconnection notification:', error)
+        // Don't block logout if notification fails
+      }
     }
     
     // Stop heartbeat interval
