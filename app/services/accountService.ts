@@ -61,11 +61,15 @@ class AccountService {
 
   // Handle network recovery (arrow function to bind 'this' correctly)
   private handleNetworkRecovery = async () => {
-    console.log('🌐 Network connection restored')
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('🌐 Network connection restored')
+    }
     
     // If user is logged in, resume heartbeat and update session
     if (this.state.accountId) {
-      console.log('💓 Resuming heartbeat after network recovery')
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('💓 Resuming heartbeat after network recovery')
+      }
       
       // Restart heartbeat interval
       this.startHeartbeat(this.state.accountId)
@@ -73,27 +77,37 @@ class AccountService {
       // Immediately send a heartbeat to update the session
       try {
         await kioskSessionService.updateHeartbeat(this.state.accountId)
-        console.log('✅ Session reactivated after network recovery')
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('✅ Session reactivated after network recovery')
+        }
         
         // Create notification for network recovery (non-blocking)
         try {
           await notifyNetworkRecovered(this.state.accountId)
         } catch (error) {
-          console.error('Failed to create network recovery notification:', error)
+          if (process.env.NODE_ENV !== 'production') {
+            console.error('Failed to create network recovery notification:', error)
+          }
         }
       } catch (error) {
-        console.error('❌ Failed to reactivate session after network recovery:', error)
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('❌ Failed to reactivate session after network recovery:', error)
+        }
       }
     }
   }
 
   // Handle network loss (arrow function to bind 'this' correctly)
   private handleNetworkLoss = () => {
-    console.log('🌐 Network connection lost')
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('🌐 Network connection lost')
+    }
     
     // Stop heartbeat to avoid failed requests
     if (this.state.accountId) {
-      console.log('💓 Pausing heartbeat due to network loss')
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('💓 Pausing heartbeat due to network loss')
+      }
       this.stopHeartbeat()
     }
   }
@@ -145,7 +159,9 @@ class AccountService {
         })
       }
     } catch (error) {
-      console.error('Error initializing account:', error)
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Error initializing account:', error)
+      }
       this.setState({ 
         error: error instanceof Error ? error.message : 'Unknown error',
         isLoading: false 
@@ -186,7 +202,9 @@ class AccountService {
             userData.fullname || userData.username || 'User'
           )
         } catch (error) {
-          console.error('Failed to create connection notification:', error)
+          if (process.env.NODE_ENV !== 'production') {
+            console.error('Failed to create connection notification:', error)
+          }
           // Don't block login if notification fails
         }
         
@@ -201,7 +219,9 @@ class AccountService {
         return false
       }
     } catch (error) {
-      console.error('Error loading account:', error)
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Error loading account:', error)
+      }
       this.setState({ 
         error: error instanceof Error ? error.message : 'Failed to load account',
         isLoading: false 
@@ -219,8 +239,6 @@ class AccountService {
     this.heartbeatInterval = window.setInterval(async () => {
       await kioskSessionService.updateHeartbeat(accountId)
     }, 60000) // 60 seconds
-    
-    console.log('💓 Heartbeat started for:', accountId)
   }
   
   // Stop heartbeat interval
@@ -228,7 +246,6 @@ class AccountService {
     if (this.heartbeatInterval) {
       window.clearInterval(this.heartbeatInterval)
       this.heartbeatInterval = null
-      console.log('💓 Heartbeat stopped')
     }
   }
 
@@ -245,7 +262,9 @@ class AccountService {
           this.state.userData.fullname || this.state.userData.username || 'User'
         )
       } catch (error) {
-        console.error('Failed to create disconnection notification:', error)
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('Failed to create disconnection notification:', error)
+        }
         // Don't block logout if notification fails
       }
     }
@@ -297,7 +316,9 @@ class AccountService {
     try {
       return await calibrationService.ensureUserHasUID(this.state.accountId)
     } catch (error) {
-      console.error('Error ensuring UID:', error)
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Error ensuring UID:', error)
+      }
       return false
     }
   }

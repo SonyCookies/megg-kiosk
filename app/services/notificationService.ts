@@ -46,10 +46,14 @@ export async function createKioskNotification(
     const notificationsRef = collection(db, 'notifications')
     await addDoc(notificationsRef, notificationData)
 
-    console.log('✅ Kiosk notification created:', type)
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('✅ Kiosk notification created:', type)
+    }
     return true
   } catch (error) {
-    console.error('❌ Error creating kiosk notification:', error)
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('❌ Error creating kiosk notification:', error)
+    }
     // Don't throw error - notifications should never block main functionality
     return false
   }

@@ -56,10 +56,14 @@ class KioskSessionService {
 
       await setDoc(sessionDocRef, sessionData)
       
-      console.log('✅ Kiosk session created:', kioskId)
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('✅ Kiosk session created:', kioskId)
+      }
       return true
     } catch (error) {
-      console.error('❌ Error creating kiosk session:', error)
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('❌ Error creating kiosk session:', error)
+      }
       return false
     }
   }
@@ -79,10 +83,14 @@ class KioskSessionService {
         status: 'active' // Ensure status is active when heartbeat updates
       })
       
-      console.log('💓 Heartbeat updated for:', kioskId)
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('💓 Heartbeat updated for:', kioskId)
+      }
       return true
     } catch (error) {
-      console.error('❌ Error updating heartbeat:', error)
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('❌ Error updating heartbeat:', error)
+      }
       return false
     }
   }
@@ -102,10 +110,14 @@ class KioskSessionService {
         lastHeartbeat: serverTimestamp() // Update one last time
       })
       
-      console.log('🔌 Kiosk session ended:', kioskId)
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('🔌 Kiosk session ended:', kioskId)
+      }
       return true
     } catch (error) {
-      console.error('❌ Error ending kiosk session:', error)
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('❌ Error ending kiosk session:', error)
+      }
       return false
     }
   }
@@ -124,14 +136,20 @@ class KioskSessionService {
       
       if (sessionDoc.exists()) {
         const data = sessionDoc.data() as KioskSessionData
-        console.log('📋 Active session found:', kioskId, 'Status:', data.status)
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('📋 Active session found:', kioskId, 'Status:', data.status)
+        }
         return data
       } else {
-        console.log('📋 No active session found for:', kioskId)
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('📋 No active session found for:', kioskId)
+        }
         return null
       }
     } catch (error) {
-      console.error('❌ Error getting active session:', error)
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('❌ Error getting active session:', error)
+      }
       return null
     }
   }
@@ -146,7 +164,9 @@ class KioskSessionService {
       const session = await this.getActiveSession(userId)
       return session !== null && session.status === 'active'
     } catch (error) {
-      console.error('❌ Error checking if session is active:', error)
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('❌ Error checking if session is active:', error)
+      }
       return false
     }
   }
