@@ -44,7 +44,7 @@ export default function BatchModal({
             <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 border-2 border-blue-500/30 rounded-2xl px-8 py-12 shadow-2xl">
               <div className="text-center">
                 <div className="text-white text-2xl font-mono mb-2">
-                  B-{currentAccountId ? currentAccountId.replace('MEGG-', '') : 'XXXXXX'}-
+                  BATCH-{currentAccountId ? currentAccountId.replace('MEGG-', '') : 'XXXXXX'}-
                 </div>
                 <div className="flex justify-center space-x-3">
                   {Array.from({ length: 4 }, (_, index) => (

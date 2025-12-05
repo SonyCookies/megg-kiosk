@@ -1,0 +1,112 @@
+{
+  "batch": {
+    "id": "BATCH-679622-0003",
+    "accountId": "MEGG-679622",
+    "name": "BATCH-679622-0003",
+    "status": "completed",
+    "stats": {
+      "totalEggs": 50,
+      "smallEggs": 12,
+      "mediumEggs": 23,
+      "largeEggs": 15,
+      "goodEggs": 42,
+      "dirtyEggs": 5,
+      "crackEggs": 3
+    },
+    "createdAt": "2025-12-04T10:00:00.000Z",
+    "updatedAt": "2025-12-04T12:00:00.000Z"
+  },
+  "eggs": [
+    {
+      "eggId": "EGG-6796220003-a1b2c",
+      "accountId": "MEGG-679622",
+      "batchId": "BATCH-679622-0003",
+      "weight": 38.5,
+      "size": "small",
+      "quality": "good",
+      "createdAt": "2025-12-04T10:05:00.000Z"
+    },
+    {
+      "eggId": "EGG-6796220003-d3e4f",
+      "accountId": "MEGG-679622",
+      "batchId": "BATCH-679622-0003",
+      "weight": 42.3,
+      "size": "small",
+      "quality": "good",
+      "createdAt": "2025-12-04T10:10:00.000Z"
+    },
+    {
+      "eggId": "EGG-6796220003-g5h6i",
+      "accountId": "MEGG-679622",
+      "batchId": "BATCH-679622-0003",
+      "weight": 45.2,
+      "size": "medium",
+      "quality": "good",
+      "createdAt": "2025-12-04T10:15:00.000Z"
+    },
+    {
+      "eggId": "EGG-6796220003-j7k8l",
+      "accountId": "MEGG-679622",
+      "batchId": "BATCH-679622-0003",
+      "weight": 48.7,
+      "size": "medium",
+      "quality": "good",
+      "createdAt": "2025-12-04T10:20:00.000Z"
+    },
+    {
+      "eggId": "EGG-6796220003-m9n0o",
+      "accountId": "MEGG-679622",
+      "batchId": "BATCH-679622-0003",
+      "weight": 52.1,
+      "size": "large",
+      "quality": "good",
+      "createdAt": "2025-12-04T10:25:00.000Z"
+    },
+    {
+      "eggId": "EGG-6796220003-p1q2r",
+      "accountId": "MEGG-679622",
+      "batchId": "BATCH-679622-0003",
+      "weight": 55.8,
+      "size": "large",
+      "quality": "good",
+      "createdAt": "2025-12-04T10:30:00.000Z"
+    },
+    {
+      "eggId": "EGG-6796220003-s3t4u",
+      "accountId": "MEGG-679622",
+      "batchId": "BATCH-679622-0003",
+      "weight": 46.5,
+      "size": "medium",
+      "quality": "dirty",
+      "createdAt": "2025-12-04T10:35:00.000Z"
+    },
+    {
+      "eggId": "EGG-6796220003-v5w6x",
+      "accountId": "MEGG-679622",
+      "batchId": "BATCH-679622-0003",
+      "weight": 44.2,
+      "size": "medium",
+      "quality": "cracked",
+      "createdAt": "2025-12-04T10:40:00.000Z"
+    },
+    {
+      "eggId": "EGG-6796220003-y7z8a",
+      "accountId": "MEGG-679622",
+      "batchId": "BATCH-679622-0003",
+      "weight": 40.1,
+      "size": "small",
+      "quality": "good",
+      "createdAt": "2025-12-04T10:45:00.000Z"
+    },
+    {
+      "eggId": "EGG-6796220003-b9c0d",
+      "accountId": "MEGG-679622",
+      "batchId": "BATCH-679622-0003",
+      "weight": 50.3,
+      "size": "medium",
+      "quality": "good",
+      "createdAt": "2025-12-04T10:50:00.000Z"
+    }
+  ]
+}
+

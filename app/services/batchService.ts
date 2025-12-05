@@ -21,9 +21,8 @@ import userService from './userService'
 export interface BatchData {
   id: string
   accountId: string
-  uid: string
   name: string
-  status: 'idle' | 'ready' | 'processing' | 'completed'
+  status: 'idle' | 'ready' | 'processing' | 'completed' | 'archived'
   stats: {
     totalEggs: number
     smallEggs: number
@@ -31,7 +30,7 @@ export interface BatchData {
     largeEggs: number
     goodEggs: number
     dirtyEggs: number
-    badEggs: number
+    crackEggs: number
   }
   createdAt: string
   updatedAt: string
@@ -46,14 +45,12 @@ class BatchService {
   async createBatch(
     batchId: string,
     accountId: string,
-    uid: string,
     name: string
   ): Promise<BatchData | null> {
     try {
       const batchData: BatchData = {
         id: batchId,
         accountId,
-        uid,
         name,
         status: 'ready',
         stats: {
@@ -63,7 +60,7 @@ class BatchService {
           largeEggs: 0,
           goodEggs: 0,
           dirtyEggs: 0,
-          badEggs: 0
+          crackEggs: 0
         },
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
@@ -135,7 +132,7 @@ class BatchService {
       }
 
       const map: Array<keyof BatchData['stats']> = [
-        'totalEggs','smallEggs','mediumEggs','largeEggs','goodEggs','dirtyEggs','badEggs'
+        'totalEggs','smallEggs','mediumEggs','largeEggs','goodEggs','dirtyEggs','crackEggs'
       ]
 
       for (const key of map) {

@@ -58,7 +58,7 @@ function HomeInner() {
   const [processingStats, setProcessingStats] = useState({
     totalProcessed: 0,
     goodEggs: 0,
-    badEggs: 0,
+    crackEggs: 0,
     smallEggs: 0,
     mediumEggs: 0,
     largeEggs: 0
@@ -120,7 +120,7 @@ function HomeInner() {
 
   // Batch states
   const [currentBatch, setCurrentBatch] = useState<any>(null)
-  const [batchStatus, setBatchStatus] = useState<'idle' | 'ready' | 'processing' | 'completed'>('idle')
+  const [batchStatus, setBatchStatus] = useState<'idle' | 'ready' | 'processing' | 'completed' | 'archived'>('idle')
   const [batchStats, setBatchStats] = useState({
     totalEggs: 0,
     smallEggs: 0,
@@ -128,7 +128,7 @@ function HomeInner() {
     largeEggs: 0,
     goodEggs: 0,
     dirtyEggs: 0,
-    badEggs: 0
+    crackEggs: 0
   })
   const [showCreateBatchModal, setShowCreateBatchModal] = useState(false)
   const [batchIdInput, setBatchIdInput] = useState('')
@@ -193,7 +193,8 @@ function HomeInner() {
   }, [currentAccountId, userData, isLoadingUser])
 
   // Network status
-  const isOnline = useInternetConnection()
+  const connectionStatus = useInternetConnection()
+  const isOnline = connectionStatus.internet
   const { readyState } = useWebSocket()
   const isWebSocketConnected = readyState === WebSocket.OPEN
 
@@ -346,9 +347,13 @@ function HomeInner() {
       return
     }
 
+    // Generate egg ID: EGG-{batchIdWithoutBATCH}-{5randomchars}
+    // Example: BATCH-679622-0001 -> EGG-6796220001-a3b5c
     const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789'
-    const bytes = (typeof crypto !== 'undefined' && crypto.getRandomValues) ? crypto.getRandomValues(new Uint8Array(8)) : new Uint8Array(8).map(() => Math.floor(Math.random()*256))
-    const eggId = Array.from(bytes).map(b => alphabet[b % alphabet.length]).join('')
+    const bytes = (typeof crypto !== 'undefined' && crypto.getRandomValues) ? crypto.getRandomValues(new Uint8Array(5)) : new Uint8Array(5).map(() => Math.floor(Math.random()*256))
+    const randomSuffix = Array.from(bytes).map(b => alphabet[b % alphabet.length]).join('')
+    const batchIdWithoutPrefix = currentBatch?.id ? currentBatch.id.replace('BATCH-', '').replace(/-/g, '') : 'UNKNOWN'
+    const eggId = `EGG-${batchIdWithoutPrefix}-${randomSuffix}`
 
     // Determine quality label and compute size from configured ranges
     // qualityLabel takes precedence and must be one of 'good'|'dirty'|'cracked'
@@ -414,7 +419,7 @@ function HomeInner() {
         largeEggs: prev.largeEggs + (computedSize === 'large' ? 1 : 0),
         goodEggs: (prev.goodEggs || 0) + (qualityLabel === 'good' ? 1 : 0),
         dirtyEggs: (prev.dirtyEggs || 0) + (qualityLabel === 'dirty' ? 1 : 0),
-        badEggs: (prev.badEggs || 0) + (qualityLabel === 'cracked' ? 1 : 0),
+        crackEggs: (prev.crackEggs || 0) + (qualityLabel === 'cracked' ? 1 : 0),
       }
       return nextStats
     })
@@ -445,7 +450,7 @@ function HomeInner() {
         largeEggs: computedSize === 'large' ? 1 : 0,
         goodEggs: qualityLabel === 'good' ? 1 : 0,
         dirtyEggs: qualityLabel === 'dirty' ? 1 : 0,
-        badEggs: qualityLabel === 'cracked' ? 1 : 0,
+        crackEggs: qualityLabel === 'cracked' ? 1 : 0,
       }
       console.log('[Firestore] Incrementing batch stats for', currentBatch.id, deltas)
       await batchService.incrementBatchStats(currentBatch.id, deltas)
@@ -1042,7 +1047,7 @@ function HomeInner() {
     
     // Extract account ID digits (remove MEGG- prefix)
     const accountDigits = currentAccountId.replace('MEGG-', '')
-    const batchId = `B-${accountDigits}-${batchIdInput}`
+    const batchId = `BATCH-${accountDigits}-${batchIdInput}`
     
     // Check if batch exists
     const existingBatchData = await checkBatchExists(batchId)
@@ -1058,22 +1063,14 @@ function HomeInner() {
         largeEggs: 0,
         goodEggs: 0,
         dirtyEggs: 0,
-        badEggs: 0
+        crackEggs: 0
       })
     } else {
-      // Get UID for the batch
-      const uid = await calibrationService.getUIDByAccountId(currentAccountId)
-      if (!uid) {
-        setBatchIdError('Unable to get user UID. Please check account setup.')
-        return
-      }
-      
       // Create new batch in Firebase
       const newBatch = await batchService.createBatch(
         batchId,
         currentAccountId,
-        uid,
-        `Batch ${batchId}`
+        batchId
       )
       
       if (newBatch) {
@@ -1123,7 +1120,7 @@ function HomeInner() {
       largeEggs: 0,
       goodEggs: 0,
       dirtyEggs: 0,
-      badEggs: 0
+      crackEggs: 0
     })
     setActiveStatsView('overview')
   }
