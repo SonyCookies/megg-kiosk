@@ -3,7 +3,6 @@
 import React, { useState } from "react"
 import { Loader2 } from "lucide-react"
 import HX711CalibrationModal from "./HX711CalibrationModal"
-import { createKioskNotification } from "../services/notificationService"
 
 interface CalibrationTabProps {
   accountId?: string | null
@@ -128,26 +127,12 @@ export default function CalibrationTab({
       return
     }
     // Start calibration immediately for other components
-    if (accountId) {
-      createKioskNotification(
-        accountId,
-        `${component} calibration started`,
-        'settings_change'
-      ).catch(() => {})
-    }
     calibrationFunction()
   }
 
   const handleHX711CalibrationComplete = (success: boolean, message: string) => {
     if (success) {
       showToaster('success', message)
-      if (accountId) {
-        createKioskNotification(
-          accountId,
-          message || 'HX711 calibration completed',
-          'settings_change'
-        ).catch(() => {})
-      }
     } else {
       showToaster('error', message)
     }

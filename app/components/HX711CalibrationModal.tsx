@@ -205,6 +205,13 @@ export default function HX711CalibrationModal({
         setCalibrationStep('input')
         setCalibrationMessage("")
         setWeightError(result.error || "Calibration failed")
+        if (accountId) {
+          createKioskNotification(
+            accountId,
+            `HX711 calibration failed: ${result.error || "Unknown error"}`,
+            'settings_change'
+          ).catch(() => {})
+        }
         onCalibrationComplete(false, result.error || "Calibration failed")
         setShowLogModal(false)
       }
@@ -212,6 +219,13 @@ export default function HX711CalibrationModal({
       setCalibrationStep('input')
       setCalibrationMessage("")
       setWeightError("Failed to communicate with IoT backend")
+      if (accountId) {
+        createKioskNotification(
+          accountId,
+          "HX711 calibration failed: Communication error",
+          'settings_change'
+        ).catch(() => {})
+      }
       onCalibrationComplete(false, "Communication error")
       setShowLogModal(false)
     } finally {

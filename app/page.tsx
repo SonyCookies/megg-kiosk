@@ -321,16 +321,40 @@ function HomeInner() {
         showToaster('info', 'Calibration completed! Enter your Account ID to save results to Firebase.')
       }
       
-      // Show user feedback
+      // Show user feedback and send notifications
       if (data.status === 'completed') {
         if (data.success) {
           showToaster('success', data.message || `${data.component} calibration completed successfully`)
+          // Send success notification (HX711 handles its own notification)
+          if (currentAccountId && data.component.toUpperCase() !== 'HX711') {
+            createKioskNotification(
+              currentAccountId,
+              `${data.component} calibration completed successfully`,
+              'settings_change'
+            ).catch(() => {})
+          }
         } else {
           showToaster('error', data.message || `${data.component} calibration failed`)
+          // Send failure notification (HX711 handles its own notification)
+          if (currentAccountId && data.component.toUpperCase() !== 'HX711') {
+            createKioskNotification(
+              currentAccountId,
+              `${data.component} calibration failed: ${data.message || 'Unknown error'}`,
+              'settings_change'
+            ).catch(() => {})
+          }
         }
         resetCalibrationState(data.component)
       } else if (data.status === 'failed' || !data.success) {
         showToaster('error', data.message || `${data.component} calibration failed: ${data.error || 'Unknown error'}`)
+        // Send failure notification (HX711 handles its own notification)
+        if (currentAccountId && data.component.toUpperCase() !== 'HX711') {
+          createKioskNotification(
+            currentAccountId,
+            `${data.component} calibration failed: ${data.error || data.message || 'Unknown error'}`,
+            'settings_change'
+          ).catch(() => {})
+        }
         resetCalibrationState(data.component)
       } else if (data.status === 'started') {
       }
