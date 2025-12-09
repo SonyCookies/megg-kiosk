@@ -11,6 +11,7 @@ interface ConfigurationTabProps {
   showGapWarning: boolean
   rangeValidation: RangeValidation | null
   isCustomized: boolean
+  onResetToDefaults: () => void
   onHandleRangeEdit: (rangeType: 'small' | 'medium' | 'large') => void
   onSetShowGapWarning: (show: boolean) => void
 }
@@ -22,6 +23,7 @@ export default function ConfigurationTab({
   showGapWarning,
   rangeValidation,
   isCustomized,
+  onResetToDefaults,
   onHandleRangeEdit,
   onSetShowGapWarning
 }: ConfigurationTabProps) {
@@ -135,6 +137,18 @@ export default function ConfigurationTab({
               </div>
             )}
           </div>
+
+          {/* Restore Defaults */}
+          {isCustomized && (
+            <div className="flex justify-center">
+              <button
+                onClick={onResetToDefaults}
+                className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors border border-slate-500/50"
+              >
+                Reset to Global Defaults
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

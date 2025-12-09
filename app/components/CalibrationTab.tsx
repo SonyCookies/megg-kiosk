@@ -3,8 +3,10 @@
 import React, { useState } from "react"
 import { Loader2 } from "lucide-react"
 import HX711CalibrationModal from "./HX711CalibrationModal"
+import { createKioskNotification } from "../services/notificationService"
 
 interface CalibrationTabProps {
+  accountId?: string | null
   isCalibratingUno: boolean
   isCalibratingHX711: boolean
   isCalibratingNema23: boolean
@@ -29,6 +31,7 @@ interface CalibrationTabProps {
 }
 
 export default function CalibrationTab({
+  accountId,
   isCalibratingUno,
   isCalibratingHX711,
   isCalibratingNema23,
@@ -125,12 +128,26 @@ export default function CalibrationTab({
       return
     }
     // Start calibration immediately for other components
+    if (accountId) {
+      createKioskNotification(
+        accountId,
+        `${component} calibration started`,
+        'settings_change'
+      ).catch(() => {})
+    }
     calibrationFunction()
   }
 
   const handleHX711CalibrationComplete = (success: boolean, message: string) => {
     if (success) {
       showToaster('success', message)
+      if (accountId) {
+        createKioskNotification(
+          accountId,
+          message || 'HX711 calibration completed',
+          'settings_change'
+        ).catch(() => {})
+      }
     } else {
       showToaster('error', message)
     }
@@ -141,6 +158,7 @@ export default function CalibrationTab({
         isOpen={showHX711Modal}
         onClose={() => setShowHX711Modal(false)}
         onCalibrationComplete={handleHX711CalibrationComplete}
+        accountId={accountId}
       />
       <div className="h-full overflow-y-auto p-3">
       <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl p-4 border border-slate-600/30 shadow-lg">

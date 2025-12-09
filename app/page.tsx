@@ -32,6 +32,7 @@ import {
   getNextRangeType,
   RangeValidation
 } from './utils/configurationService'
+import { createKioskNotification } from './services/notificationService'
 
 // Import tab components
 import CameraTab from "./components/CameraTab"
@@ -43,7 +44,7 @@ import MainTab from "./components/MainTab"
 
 // Import modal components
 import PinModal from "./components/PinModal"
-import RangeModal from "./components/RangeModal"
+import RangeModal, { SmartAdjustment } from "./components/RangeModal"
 import BatchModal from "./components/BatchModal"
 import Toaster from "./components/Toaster"
 
@@ -370,6 +371,20 @@ function HomeInner() {
   }, [])
 
   const persistEgg = useCallback(async (weight: number | null, classification: 'small'|'medium'|'large'|'bad', options?: { bypassDedup?: boolean, qualityLabel?: 'good'|'dirty'|'cracked' }) => {
+    // Reject obviously invalid weights: null, NaN, negative, too small, or absurdly large
+    if (typeof weight !== 'number' || Number.isNaN(weight)) {
+      console.warn('[persistEgg] Skipping invalid weight (non-number/NaN):', weight)
+      return
+    }
+    if (weight < 10) {
+      console.warn('[persistEgg] Skipping weight below 10g:', weight)
+      return
+    }
+    if (weight > 200) {
+      console.warn('[persistEgg] Skipping weight above 200g:', weight)
+      return
+    }
+
     // Dedupe: if same weight processed within 1.5s, ignore
     const now = Date.now()
     if (!options?.bypassDedup && typeof weight === 'number' && lastProcessedWeightRef.current === weight && (now - lastProcessedAtRef.current) < 1500) {
@@ -899,7 +914,7 @@ function HomeInner() {
     setShowRangeModal(true)
   }
 
-  const handleRangeSubmit = async () => {
+  const handleRangeSubmit = async (smartAdjustment?: SmartAdjustment | null) => {
     if (minInput.length === 0 || maxInput.length === 0) {
       setRangeError('Please enter both minimum and maximum values')
       return
@@ -913,8 +928,23 @@ function HomeInner() {
       return
     }
     
+    if (min < 0 || max < 0) {
+      setRangeError('Values must be positive')
+      return
+    }
+    
     if (min >= max) {
       setRangeError('Minimum must be less than maximum')
+      return
+    }
+    
+    if (!currentAccountId) {
+      setRangeError('No account ID found. Please log in first.')
+      return
+    }
+    
+    if (!editingRange) {
+      setRangeError('No range selected')
       return
     }
     
@@ -922,37 +952,84 @@ function HomeInner() {
     setRangeError('')
 
     try {
-      if (editingRange && currentAccountId) {
-        const updatedRanges = {
-          ...eggRanges,
-          [editingRange]: { min, max }
-        }
-        
-        // Validate the updated ranges
-        const validation = validateRanges(updatedRanges)
-        setRangeValidation(validation)
-        
-        setEggRanges(updatedRanges)
-        setIsCustomized(true)
-        setConfigSource('user')
-        
-        // Save to Firebase with fallback to localStorage
-        await saveConfigurationWithFallback(currentAccountId, updatedRanges)
-        
-        // Show gap warning if there are gaps
-        if (validation.hasGaps) {
-          setShowGapWarning(true)
+      const updatedRanges: EggSizeRanges = {
+        ...eggRanges,
+        [editingRange]: {
+          ...eggRanges[editingRange],
+          min,
+          max
         }
       }
 
-      setShowRangeModal(false)
-      setEditingRange(null)
-      setMinInput('')
-      setMaxInput('')
+      const applyAdjustment = (
+        targetRange: 'small' | 'medium' | 'large',
+        adjustment: { min: number; max: number },
+        targetLabel?: string
+      ) => {
+        updatedRanges[targetRange] = {
+          ...eggRanges[targetRange],
+          min: adjustment.min,
+          max: adjustment.max,
+          label: targetLabel || eggRanges[targetRange]?.label
+        }
+      }
+
+      if (smartAdjustment) {
+        applyAdjustment(
+          smartAdjustment.targetRange,
+          smartAdjustment.adjustment,
+          smartAdjustment.targetRangeLabel
+        )
+
+        smartAdjustment.cascadingAdjustments?.forEach((cascade) => {
+          applyAdjustment(
+            cascade.targetRange,
+            cascade.adjustment,
+            cascade.targetRangeLabel
+          )
+        })
+      }
+      
+      const validation = validateRanges(updatedRanges)
+      setRangeValidation(validation)
+      setShowGapWarning(validation.hasGaps)
+      
+      setEggRanges(updatedRanges)
+      setIsCustomized(true)
+      setConfigSource('user')
+      
+      // Save to Firebase with fallback to localStorage
+      await saveConfigurationWithFallback(currentAccountId, updatedRanges)
+
+      // Fire-and-forget notification (don't block save)
+      try {
+        const rangeLabelMap = { small: 'Small', medium: 'Medium', large: 'Large' }
+        const label = rangeLabelMap[editingRange] || editingRange
+        const mainMsg = `${label} range updated to ${min.toFixed(2)}g - ${max.toFixed(2)}g`
+
+        if (smartAdjustment) {
+          const smartLabel = rangeLabelMap[smartAdjustment.targetRange] || smartAdjustment.targetRange
+          const smartMsg = `${smartLabel} auto-adjusted to ${smartAdjustment.adjustment.min.toFixed(2)}g - ${smartAdjustment.adjustment.max.toFixed(2)}g`
+          const cascadeMsg = smartAdjustment.cascadingAdjustments?.map(c => {
+            const cLabel = rangeLabelMap[c.targetRange] || c.targetRange
+            return `${cLabel} ${c.adjustment.min.toFixed(2)}g-${c.adjustment.max.toFixed(2)}g`
+          })?.join(', ')
+          const fullMsg = cascadeMsg ? `${mainMsg}; ${smartMsg}; ${cascadeMsg}` : `${mainMsg}; ${smartMsg}`
+          createKioskNotification(currentAccountId, fullMsg, 'settings_change').catch(() => {})
+        } else {
+          createKioskNotification(currentAccountId, mainMsg, 'settings_change').catch(() => {})
+        }
+      } catch (notifErr) {
+        console.warn('Notification failed (non-blocking):', notifErr)
+      }
     } catch (error) {
       console.error('Error saving range:', error)
       setRangeError('Failed to save configuration. Please try again.')
     } finally {
+      setShowRangeModal(false)
+      setEditingRange(null)
+      setMinInput('')
+      setMaxInput('')
       setIsSavingRange(false)
     }
   }
@@ -1013,6 +1090,15 @@ function HomeInner() {
       // If no accountId, this will load from global_configurations
       // If accountId exists, this will load global defaults after deleting user config
       await loadConfiguration(currentAccountId)
+
+      // Fire-and-forget notification
+      if (currentAccountId) {
+        createKioskNotification(
+          currentAccountId,
+          'Egg weight configuration reset to global defaults',
+          'settings_change'
+        ).catch(() => {})
+      }
       
     } catch (error) {
       console.error('Error resetting to defaults:', error)
@@ -1589,6 +1675,7 @@ function HomeInner() {
             showGapWarning={showGapWarning}
             rangeValidation={rangeValidation}
             isCustomized={isCustomized}
+        onResetToDefaults={resetToDefaults}
             onHandleRangeEdit={handleRangeEdit}
             onSetShowGapWarning={setShowGapWarning}
           />
@@ -1596,6 +1683,7 @@ function HomeInner() {
 
                {activeTab === 'calibration' && (
         <CalibrationTab
+          accountId={currentAccountId}
           isCalibratingUno={isCalibratingUno}
           isCalibratingHX711={isCalibratingHX711}
           isCalibratingNema23={isCalibratingNema23}
@@ -1644,6 +1732,7 @@ function HomeInner() {
         rangeError={rangeError}
         currentInputField={currentInputField}
         isSavingRange={isSavingRange}
+        eggRanges={eggRanges}
         onHandleRangeSubmit={handleRangeSubmit}
         onSetShowRangeModal={setShowRangeModal}
         onSetCurrentInputField={setCurrentInputField}

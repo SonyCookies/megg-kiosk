@@ -42,7 +42,7 @@ export interface GlobalConfiguration {
 
 export interface UserConfiguration {
   accountId: string
-  uid?: string // User UID for tracking
+  uid?: string | null // User UID for tracking
   configurations: {
     eggSizeRanges: EggSizeRanges
   }
@@ -195,19 +195,29 @@ export async function getUserConfiguration(accountId: string): Promise<EggSizeRa
 }
 
 /**
- * Save user-specific configuration for egg size ranges
+ * Save user-specific configuration for egg size ranges.
+ * Ensures we never write undefined fields (Firestore rejects them).
  */
-export async function saveUserConfiguration(accountId: string, eggRanges: EggSizeRanges): Promise<void> {
+export async function saveUserConfiguration(
+  accountId: string,
+  eggRanges: EggSizeRanges,
+  uid?: string | null
+): Promise<void> {
   try {
     const docRef = doc(db, 'user_configurations', accountId)
     
     // First, get the existing configuration to preserve the UID
     const existingDoc = await getDoc(docRef)
-    const existingData = existingDoc.exists() ? existingDoc.data() : {}
+    const existingData = existingDoc.exists() ? (existingDoc.data() as Partial<UserConfiguration>) : {}
+
+    // Prefer the provided uid, then existing uid, otherwise store null (never undefined)
+    const resolvedUid = typeof uid === 'string' && uid.trim().length > 0
+      ? uid
+      : existingData.uid ?? null
     
     const userConfig: UserConfiguration = {
       accountId,
-      uid: existingData.uid, // Preserve existing UID
+      uid: resolvedUid,
       configurations: {
         eggSizeRanges: eggRanges
       },

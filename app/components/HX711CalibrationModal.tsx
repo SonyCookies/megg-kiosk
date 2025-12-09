@@ -3,17 +3,20 @@
 import React, { useEffect, useState } from "react"
 import { Scale, Loader2, AlertCircle } from "lucide-react"
 import iotService from "../services/iotService"
+import { createKioskNotification } from "../services/notificationService"
 
 interface HX711CalibrationModalProps {
   isOpen: boolean
   onClose: () => void
   onCalibrationComplete: (success: boolean, message: string) => void
+  accountId?: string | null
 }
 
 export default function HX711CalibrationModal({
   isOpen,
   onClose,
-  onCalibrationComplete
+  onCalibrationComplete,
+  accountId
 }: HX711CalibrationModalProps) {
   const [weightInput, setWeightInput] = useState("65") // default to common 65g test weight
   const [currentWeight, setCurrentWeight] = useState<number | null>(null)
@@ -187,6 +190,13 @@ export default function HX711CalibrationModal({
           localStorage.setItem('hx711_last_weight', String(weight))
         } catch (_) {}
         setTimeout(() => {
+          if (accountId) {
+            createKioskNotification(
+              accountId,
+              `HX711 calibrated with ${weight}g`,
+              'settings_change'
+            ).catch(() => {})
+          }
           onCalibrationComplete(true, `HX711 calibrated with ${weight}g`)
           onClose()
           setShowLogModal(false)
