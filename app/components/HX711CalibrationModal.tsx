@@ -15,75 +15,43 @@ export default function HX711CalibrationModal({
   onClose,
   onCalibrationComplete
 }: HX711CalibrationModalProps) {
-  const [weightInput, setWeightInput] = useState("23")
+  const [weightInput, setWeightInput] = useState("65") // default to common 65g test weight
   const [currentWeight, setCurrentWeight] = useState<number | null>(null)
   const [isLoadingWeight, setIsLoadingWeight] = useState(false)
   const [weightError, setWeightError] = useState<string | null>(null)
-  const [isInitialLoad, setIsInitialLoad] = useState(true)
   const [isCalibrating, setIsCalibrating] = useState(false)
   const [calibrationStep, setCalibrationStep] = useState<'input' | 'calibrating' | 'complete'>('input')
   const [calibrationMessage, setCalibrationMessage] = useState<string>("")
-  // We keep last step only; no terminal-like list
+  // Track all progress messages for display in the modal
+  const [progressLog, setProgressLog] = useState<Array<{ text: string; type?: 'info' | 'warning' | 'done' }>>([])
   const [lastProgressMsg, setLastProgressMsg] = useState<string>("")
   const [receivedDoneMsg, setReceivedDoneMsg] = useState<boolean>(false)
+  const [showLogModal, setShowLogModal] = useState(false)
 
-  // Poll weight continuously while modal is open
+  const pushLog = (text: string, type: 'info' | 'warning' | 'done' = 'info') => {
+    setProgressLog(prev => [...prev, { text, type }].slice(-12))
+  }
+
+  // On open: reset state and prefill weight; no auto-polling
   useEffect(() => {
     if (!isOpen) {
       setCurrentWeight(null)
       setWeightError(null)
       setCalibrationStep('input')
       setCalibrationMessage("")
-      setIsInitialLoad(true)
       setLastProgressMsg("")
       setReceivedDoneMsg(false)
+      setProgressLog([])
+      setShowLogModal(false)
       return
     }
 
-    // When opening modal, prefill weight from localStorage if available
     try {
       const saved = localStorage.getItem('hx711_last_weight')
       if (saved && !isNaN(parseFloat(saved))) {
         setWeightInput(saved)
       }
     } catch (_) {}
-
-    const pollWeight = async () => {
-      try {
-        // Only show loading on initial load
-        if (isInitialLoad) {
-          setIsLoadingWeight(true)
-        }
-        
-        const result = await iotService.getWeight()
-        
-        if (result.success && result.weight !== undefined) {
-          setCurrentWeight(result.weight)
-          setWeightError(null)
-          setIsInitialLoad(false)
-        } else {
-          // Only set error if we don't have a previous weight
-          if (currentWeight === null) {
-            setWeightError(result.error || 'Failed to read weight')
-          }
-        }
-      } catch (error) {
-        // Only set error if we don't have a previous weight
-        if (currentWeight === null) {
-          setWeightError('Connection error')
-        }
-      } finally {
-        setIsLoadingWeight(false)
-      }
-    }
-
-    // Initial poll
-    pollWeight()
-
-    // Set up interval for continuous polling (every 1 second for calibration)
-    const interval = setInterval(pollWeight, 1000)
-
-    return () => clearInterval(interval)
   }, [isOpen])
 
   const handleNumberClick = (num: string) => {
@@ -93,6 +61,23 @@ export default function HX711CalibrationModal({
     if (num === "." && weightInput.includes(".")) return
     
     setWeightInput(weightInput + num)
+  }
+
+  const handleReadWeight = async () => {
+    setIsLoadingWeight(true)
+    setWeightError(null)
+    try {
+      const result = await iotService.getWeight()
+      if (result.success && result.weight !== undefined) {
+        setCurrentWeight(result.weight)
+      } else {
+        setWeightError(result.error || 'Failed to read weight')
+      }
+    } catch (_) {
+      setWeightError('Connection error')
+    } finally {
+      setIsLoadingWeight(false)
+    }
   }
 
   const handleBackspace = () => {
@@ -111,30 +96,62 @@ export default function HX711CalibrationModal({
       return
     }
 
+    // Ensure WebSocket is connected before starting calibration
+    if (!iotService.isConnected()) {
+      try {
+        await iotService.connect()
+      } catch (err) {
+        setWeightError("Unable to connect to IoT backend")
+        onCalibrationComplete(false, "Communication error")
+        return
+      }
+    }
+
     setIsCalibrating(true)
     setCalibrationStep('calibrating')
     setCalibrationMessage("Starting calibration...")
     setLastProgressMsg("")
     setReceivedDoneMsg(false)
+    setProgressLog([])
+    setShowLogModal(true)
 
     // Subscribe to live calibration progress
     const onProgress = (data: any) => {
       if (data?.component !== 'HX711' || typeof data.message !== 'string') return
       const line: string = data.message.trim()
-
       // Prefer JSON messages from Arduino and filter only step events
       if (line.startsWith('{')) {
         try {
           const obj = JSON.parse(line)
-          if (obj?.hx711 === 'step1' || obj?.hx711 === 'step2' || obj?.hx711 === 'done') {
-            const msg = String(obj.message || '')
-            // Update the main status text (replaces the loading text)
-            if (msg && msg !== lastProgressMsg) {
+          const hxType = obj?.hx711
+          const msg = String(obj.message || '')
+
+          if (hxType === 'step1' || hxType === 'step2') {
+            if (msg) {
               setCalibrationMessage(msg)
               setLastProgressMsg(msg)
+              pushLog(msg, 'info')
             }
-            if (obj?.hx711 === 'done') {
-              setReceivedDoneMsg(true)
+          } else if (hxType === 'warning') {
+            const warn = msg || 'HX711 warning'
+            setCalibrationMessage(warn)
+            setLastProgressMsg(warn)
+            pushLog(warn, 'warning')
+          } else if (hxType === 'done') {
+            const doneMsg = msg || 'Calibration complete'
+            setCalibrationMessage(doneMsg)
+            setLastProgressMsg(doneMsg)
+            pushLog(doneMsg, 'done')
+            setReceivedDoneMsg(true)
+
+            // If detailed fields exist, append a summary line
+            const offset = obj.offset !== undefined ? `offset=${obj.offset}` : null
+            const scale = obj.scale !== undefined ? `scale=${obj.scale}` : null
+            const verified = obj.verified_weight !== undefined ? `verified=${obj.verified_weight}g` : null
+            const error = obj.error !== undefined ? `error=${obj.error}g` : null
+            const summaryParts = [offset, scale, verified, error].filter(Boolean).join(' | ')
+            if (summaryParts) {
+              pushLog(summaryParts, 'done')
             }
           }
           return
@@ -145,10 +162,13 @@ export default function HX711CalibrationModal({
 
       // Fallback: show only human step prompts if present
       if (line.includes('Step 1') || line.includes('Step 2')) {
-        if (line !== lastProgressMsg) {
-          setCalibrationMessage(line)
-          setLastProgressMsg(line)
-        }
+        setCalibrationMessage(line)
+        setLastProgressMsg(line)
+        pushLog(line, 'info')
+      } else if (line.toLowerCase().includes('warning')) {
+        setCalibrationMessage(line)
+        setLastProgressMsg(line)
+        pushLog(line, 'warning')
       }
     }
     iotService.on('calibrationProgress', onProgress)
@@ -169,18 +189,21 @@ export default function HX711CalibrationModal({
         setTimeout(() => {
           onCalibrationComplete(true, `HX711 calibrated with ${weight}g`)
           onClose()
+          setShowLogModal(false)
         }, 2000)
       } else {
         setCalibrationStep('input')
         setCalibrationMessage("")
         setWeightError(result.error || "Calibration failed")
         onCalibrationComplete(false, result.error || "Calibration failed")
+        setShowLogModal(false)
       }
     } catch (error) {
       setCalibrationStep('input')
       setCalibrationMessage("")
       setWeightError("Failed to communicate with IoT backend")
       onCalibrationComplete(false, "Communication error")
+      setShowLogModal(false)
     } finally {
       setIsCalibrating(false)
       // Unsubscribe from progress updates
@@ -221,36 +244,42 @@ export default function HX711CalibrationModal({
               </div>
             </div>
 
-            {/* Live Weight Display */}
+            {/* On-Demand Weight Read */}
             <div className="bg-slate-700/50 border-2 border-blue-500/30 rounded-xl p-4 shadow-lg flex-1">
-              <div className="text-center">
-                <div className="text-slate-300 text-sm mb-2 flex items-center justify-center gap-2">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-slate-300 text-sm flex items-center gap-2">
                   <Scale className="h-4 w-4 text-blue-400" />
-                  Live Weight Reading
+                  Current Weight (click Read)
                 </div>
-                <div className="bg-slate-900/50 rounded-lg px-4 py-6 border border-slate-600/50">
-                  {currentWeight !== null ? (
-                    <div className="text-4xl font-mono font-bold text-blue-400">
-                      {currentWeight.toFixed(2)}<span className="text-slate-500 text-xl ml-1">g</span>
-                    </div>
-                  ) : isLoadingWeight ? (
-                    <div className="flex items-center justify-center gap-2">
-                      <Loader2 className="h-5 w-5 text-blue-400 animate-spin" />
-                      <span className="text-slate-400 text-lg">Reading...</span>
-                    </div>
-                  ) : weightError ? (
-                    <div className="flex items-center justify-center gap-2">
-                      <AlertCircle className="h-5 w-5 text-red-400" />
-                      <span className="text-red-400 text-sm">{weightError}</span>
-                    </div>
-                  ) : (
-                    <span className="text-slate-500 text-2xl">--</span>
-                  )}
-                </div>
+                <button
+                  onClick={handleReadWeight}
+                  disabled={isLoadingWeight}
+                  className={`text-xs px-3 py-1 rounded font-semibold ${
+                    isLoadingWeight
+                      ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                      : 'bg-blue-600 text-white hover:bg-blue-700'
+                  }`}
+                >
+                  {isLoadingWeight ? 'Reading...' : 'Read weight'}
+                </button>
+              </div>
+              <div className="bg-slate-900/50 rounded-lg px-4 py-6 border border-slate-600/50 text-center">
+                {currentWeight !== null ? (
+                  <div className="text-4xl font-mono font-bold text-blue-400">
+                    {currentWeight.toFixed(2)}<span className="text-slate-500 text-xl ml-1">g</span>
+                  </div>
+                ) : weightError ? (
+                  <div className="flex items-center justify-center gap-2">
+                    <AlertCircle className="h-5 w-5 text-red-400" />
+                    <span className="text-red-400 text-sm">{weightError}</span>
+                  </div>
+                ) : (
+                  <span className="text-slate-500 text-2xl">--</span>
+                )}
               </div>
             </div>
 
-            {/* Calibration Status */}
+            {/* Calibration Status (current) */}
             {calibrationMessage && (
               <div className="bg-yellow-900/30 border border-yellow-500/50 rounded-lg p-3">
                 <div className="flex items-center gap-2 text-yellow-300 text-sm">
@@ -259,8 +288,6 @@ export default function HX711CalibrationModal({
                 </div>
               </div>
             )}
-
-            {/* Suppress terminal-like list; only show single status above */}
 
             {/* Action Buttons */}
             <div className="flex gap-3">
@@ -352,6 +379,45 @@ export default function HX711CalibrationModal({
           </div>
         </div>
       </div>
+
+      {/* Secondary Log Modal */}
+      {showLogModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-60">
+          <div className="bg-slate-900/95 border border-slate-600/70 rounded-xl shadow-2xl w-full max-w-2xl mx-4 p-4">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-white font-semibold text-sm">HX711 Calibration Progress</h3>
+              <button
+                onClick={() => { if (!isCalibrating) setShowLogModal(false) }}
+                disabled={isCalibrating}
+                className={`text-xs px-3 py-1 rounded ${
+                  isCalibrating ? 'bg-slate-700 text-slate-400 cursor-not-allowed' : 'bg-slate-700/70 text-white hover:bg-slate-600'
+                }`}
+              >
+                Close
+              </button>
+            </div>
+            <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-3 max-h-72 overflow-y-auto space-y-1">
+              {progressLog.length === 0 && (
+                <div className="text-xs text-slate-400">Waiting for calibration messages...</div>
+              )}
+              {progressLog.map((entry, idx) => (
+                <div
+                  key={idx}
+                  className={`text-xs font-mono ${
+                    entry.type === 'warning'
+                      ? 'text-yellow-300'
+                      : entry.type === 'done'
+                      ? 'text-green-300'
+                      : 'text-slate-200'
+                  }`}
+                >
+                  {entry.text}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

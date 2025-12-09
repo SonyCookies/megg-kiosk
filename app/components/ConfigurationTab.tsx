@@ -1,7 +1,7 @@
 "use client"
 
 import React from "react"
-import { Settings, Loader2, AlertCircle } from "lucide-react"
+import { Loader2, AlertCircle } from "lucide-react"
 import { EggSizeRanges, RangeValidation } from "../utils/configurationService"
 
 interface ConfigurationTabProps {
@@ -12,7 +12,6 @@ interface ConfigurationTabProps {
   rangeValidation: RangeValidation | null
   isCustomized: boolean
   onHandleRangeEdit: (rangeType: 'small' | 'medium' | 'large') => void
-  onResetToDefaults: () => void
   onSetShowGapWarning: (show: boolean) => void
 }
 
@@ -24,7 +23,6 @@ export default function ConfigurationTab({
   rangeValidation,
   isCustomized,
   onHandleRangeEdit,
-  onResetToDefaults,
   onSetShowGapWarning
 }: ConfigurationTabProps) {
   return (
@@ -134,24 +132,6 @@ export default function ConfigurationTab({
                     <AlertCircle className="h-4 w-4" />
                   </button>
                 </div>
-              </div>
-            )}
-
-            {/* Reset to Defaults Button */}
-            {isCustomized && (
-              <div className="flex justify-center mt-3">
-                <button
-                  onClick={onResetToDefaults}
-                  disabled={isLoadingConfig}
-                  className="bg-gray-600 hover:bg-gray-700 disabled:bg-gray-800 text-white px-4 py-2 rounded text-sm font-medium transition-all duration-200 flex items-center gap-2"
-                >
-                  {isLoadingConfig ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Settings className="h-4 w-4" />
-                  )}
-                  Reset to Defaults
-                </button>
               </div>
             )}
           </div>

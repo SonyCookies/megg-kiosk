@@ -383,10 +383,12 @@ class IoTService {
       })
       
       return new Promise((resolve, reject) => {
+        // Extend timeout to allow full calibration flow (progress + final result)
+        const timeoutMs = 5 * 60 * 1000 // 5 minutes
         const timeout = setTimeout(() => {
           this.off('calibrationResult', handler)
           reject(new Error(`HX711 calibration timeout - no response from IoT backend`))
-        }, 30000) // 30 second timeout
+        }, timeoutMs)
 
         const handler = (data: any) => {
           if (data.component === 'HX711') {

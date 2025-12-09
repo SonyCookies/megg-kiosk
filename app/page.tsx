@@ -135,6 +135,8 @@ function HomeInner() {
   const [batchIdError, setBatchIdError] = useState('')
   const [existingBatch, setExistingBatch] = useState<any>(null)
   const [isCheckingBatch, setIsCheckingBatch] = useState(false)
+  const [suggestedBatchNumber, setSuggestedBatchNumber] = useState<string | null>(null)
+  const [isLoadingSuggestedBatch, setIsLoadingSuggestedBatch] = useState(false)
   const [activeStatsView, setActiveStatsView] = useState<'overview' | 'size' | 'quality'>('overview')
 
   // Calibration states
@@ -181,6 +183,34 @@ function HomeInner() {
     if (currentAccountId) {
       loadBatches(currentAccountId)
     }
+  }, [currentAccountId])
+
+  // Load batch stats from database when currentBatch changes
+  useEffect(() => {
+    const loadBatchStats = async () => {
+      if (currentBatch?.id) {
+        try {
+          const batchData = await batchService.getBatch(currentBatch.id)
+          if (batchData && batchData.stats) {
+            setBatchStats(batchData.stats)
+            setBatchStatus(batchData.status || 'ready')
+            // Update currentBatch with latest data
+            setCurrentBatch(batchData)
+          }
+        } catch (error) {
+          console.error('Error loading batch stats:', error)
+        }
+      }
+    }
+    
+    loadBatchStats()
+  }, [currentBatch?.id])
+
+  // Load configuration when account ID changes (or when there's no account ID)
+  // If no accountId, loads from global_configurations
+  // If accountId exists, loads from user_configurations (with fallback to global)
+  useEffect(() => {
+    loadConfiguration(currentAccountId)
   }, [currentAccountId])
 
   // Set initial tab based on account status
@@ -808,9 +838,11 @@ function HomeInner() {
     }
   }
 
-  const loadConfiguration = async (accountId: string) => {
+  const loadConfiguration = async (accountId: string | null) => {
     try {
       setIsLoadingConfig(true)
+      // If no accountId, load from global_configurations
+      // If accountId exists, try user_configurations first, then fallback to global
       const config = await getConfigurationWithFallback(accountId)
       setEggRanges(config.ranges)
       setConfigSource(config.source)
@@ -971,24 +1003,79 @@ function HomeInner() {
   }
 
   const resetToDefaults = async () => {
-    if (currentAccountId) {
-      try {
-        setIsLoadingConfig(true)
+    try {
+      setIsLoadingConfig(true)
+      if (currentAccountId) {
         // Delete user configuration to reset to defaults
         await deleteUserConfiguration(currentAccountId)
-        
-        // Reload configuration (will fetch global defaults)
-        await loadConfiguration(currentAccountId)
-        
-      } catch (error) {
-        console.error('Error resetting to defaults:', error)
-      } finally {
-        setIsLoadingConfig(false)
       }
+      // Reload configuration (will fetch global defaults)
+      // If no accountId, this will load from global_configurations
+      // If accountId exists, this will load global defaults after deleting user config
+      await loadConfiguration(currentAccountId)
+      
+    } catch (error) {
+      console.error('Error resetting to defaults:', error)
+    } finally {
+      setIsLoadingConfig(false)
     }
   }
 
   // Batch functions
+  /**
+   * Calculate the next suggested batch number based on existing batches
+   * Fetches all batches for the account and finds the highest batch number
+   * Returns the next number (incremented by 1, padded to 4 digits)
+   */
+  const calculateNextBatchNumber = async (accountId: string): Promise<string> => {
+    try {
+      setIsLoadingSuggestedBatch(true)
+      
+      // Fetch all batches for the account (use a high limit to get all)
+      const batches = await batchService.getBatchesForAccount(accountId, 1000)
+      
+      if (batches.length === 0) {
+        // No batches exist, start with 0001
+        return '0001'
+      }
+      
+      // Extract account digits
+      const accountDigits = accountId.replace('MEGG-', '')
+      const expectedPrefix = `BATCH-${accountDigits}-`
+      
+      // Parse batch IDs to extract batch numbers
+      const batchNumbers: number[] = []
+      batches.forEach(batch => {
+        if (batch.id.startsWith(expectedPrefix)) {
+          const batchNumberStr = batch.id.replace(expectedPrefix, '')
+          const batchNumber = parseInt(batchNumberStr, 10)
+          if (!isNaN(batchNumber)) {
+            batchNumbers.push(batchNumber)
+          }
+        }
+      })
+      
+      if (batchNumbers.length === 0) {
+        // No valid batch numbers found, start with 0001
+        return '0001'
+      }
+      
+      // Find the highest batch number
+      const highestBatchNumber = Math.max(...batchNumbers)
+      
+      // Increment and pad to 4 digits
+      const nextBatchNumber = highestBatchNumber + 1
+      return String(nextBatchNumber).padStart(4, '0')
+      
+    } catch (error) {
+      console.error('Error calculating next batch number:', error)
+      // On error, default to 0001
+      return '0001'
+    } finally {
+      setIsLoadingSuggestedBatch(false)
+    }
+  }
+
   const handleBatchIdChange = (value: string) => {
     // Only allow digits and limit to 4 characters
     const digitsOnly = value.replace(/\D/g, '').slice(0, 4)
@@ -999,7 +1086,7 @@ function HomeInner() {
     // Auto-check when 4 digits are entered and account ID exists
     if (digitsOnly.length === 4 && currentAccountId) {
       const accountDigits = currentAccountId.replace('MEGG-', '')
-      const batchId = `B-${accountDigits}-${digitsOnly}`
+      const batchId = `BATCH-${accountDigits}-${digitsOnly}`
       checkBatchExists(batchId)
     } else if (digitsOnly.length === 4 && !currentAccountId) {
       setBatchIdError('Account ID required to check batch')
@@ -1049,22 +1136,28 @@ function HomeInner() {
     const accountDigits = currentAccountId.replace('MEGG-', '')
     const batchId = `BATCH-${accountDigits}-${batchIdInput}`
     
-    // Check if batch exists
-    const existingBatchData = await checkBatchExists(batchId)
+    // Check if batch exists - fetch fresh data from database
+    const existingBatchData = await batchService.getBatch(batchId)
     
     if (existingBatchData) {
-      // Load existing batch
+      // Load existing batch with fresh stats from database
       setCurrentBatch(existingBatchData)
       setBatchStatus(existingBatchData.status || 'ready')
-      setBatchStats(existingBatchData.stats || {
-        totalEggs: 0,
-        smallEggs: 0,
-        mediumEggs: 0,
-        largeEggs: 0,
-        goodEggs: 0,
-        dirtyEggs: 0,
-        crackEggs: 0
-      })
+      // Ensure stats are properly loaded from database
+      if (existingBatchData.stats) {
+        setBatchStats(existingBatchData.stats)
+      } else {
+        // If stats don't exist, initialize with zeros
+        setBatchStats({
+          totalEggs: 0,
+          smallEggs: 0,
+          mediumEggs: 0,
+          largeEggs: 0,
+          goodEggs: 0,
+          dirtyEggs: 0,
+          crackEggs: 0
+        })
+      }
     } else {
       // Create new batch in Firebase
       const newBatch = await batchService.createBatch(
@@ -1076,7 +1169,15 @@ function HomeInner() {
       if (newBatch) {
         setCurrentBatch(newBatch)
         setBatchStatus('ready')
-        setBatchStats(newBatch.stats)
+        setBatchStats(newBatch.stats || {
+          totalEggs: 0,
+          smallEggs: 0,
+          mediumEggs: 0,
+          largeEggs: 0,
+          goodEggs: 0,
+          dirtyEggs: 0,
+          crackEggs: 0
+        })
     } else {
         setBatchIdError('Failed to create batch. Please try again.')
         return
@@ -1087,6 +1188,7 @@ function HomeInner() {
     setBatchIdInput('')
     setBatchIdError('')
     setExistingBatch(null)
+    setSuggestedBatchNumber(null)
   }
 
   const startBatchProcessing = async () => {
@@ -1465,7 +1567,15 @@ function HomeInner() {
             batchStats={batchStats}
             activeStatsView={activeStatsView}
             onSetActiveTab={(tab: string) => setActiveTab(tab as 'main' | 'camera' | 'batch' | 'configuration' | 'calibration' | 'account')}
-            onShowCreateBatchModal={() => setShowCreateBatchModal(true)}
+            onShowCreateBatchModal={async () => {
+              if (currentAccountId) {
+                // Calculate and set suggested batch number
+                const suggested = await calculateNextBatchNumber(currentAccountId)
+                setSuggestedBatchNumber(suggested)
+                setBatchIdInput(suggested) // Auto-fill the suggested number
+              }
+              setShowCreateBatchModal(true)
+            }}
             onResetBatch={resetBatch}
             onToggleStatsView={toggleStatsView}
           />
@@ -1480,7 +1590,6 @@ function HomeInner() {
             rangeValidation={rangeValidation}
             isCustomized={isCustomized}
             onHandleRangeEdit={handleRangeEdit}
-            onResetToDefaults={resetToDefaults}
             onSetShowGapWarning={setShowGapWarning}
           />
         )}
@@ -1550,6 +1659,8 @@ function HomeInner() {
         currentAccountId={currentAccountId}
         isCheckingBatch={isCheckingBatch}
         existingBatch={existingBatch}
+        suggestedBatchNumber={suggestedBatchNumber}
+        isLoadingSuggestedBatch={isLoadingSuggestedBatch}
         onHandleBatchIdChange={handleBatchIdChange}
         onProceedWithBatch={proceedWithBatch}
         onSetShowCreateBatchModal={setShowCreateBatchModal}

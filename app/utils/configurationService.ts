@@ -242,20 +242,23 @@ export async function deleteUserConfiguration(accountId: string): Promise<void> 
 
 /**
  * Get configuration with priority: User Config → Global Default → localStorage fallback
+ * If accountId is null, skips user config and goes directly to global default
  */
-export async function getConfigurationWithFallback(accountId: string): Promise<{
+export async function getConfigurationWithFallback(accountId: string | null): Promise<{
   ranges: EggSizeRanges
   source: 'user' | 'global' | 'local'
   isCustomized: boolean
 }> {
   try {
-    // 1. Try to get user configuration
-    const userConfig = await getUserConfiguration(accountId)
-    if (userConfig) {
-      return {
-        ranges: userConfig,
-        source: 'user',
-        isCustomized: true
+    // 1. Try to get user configuration (only if accountId is provided)
+    if (accountId) {
+      const userConfig = await getUserConfiguration(accountId)
+      if (userConfig) {
+        return {
+          ranges: userConfig,
+          source: 'user',
+          isCustomized: true
+        }
       }
     }
 
