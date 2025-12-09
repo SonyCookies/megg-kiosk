@@ -71,9 +71,10 @@ export async function sendSMS(
     return { success: false, error: 'Recipient phone number not found in user data' }
   }
 
-  // Validate phone number format (basic validation)
-  const phoneRegex = /^\+?[1-9]\d{1,14}$/
-  if (!phoneRegex.test(recipientPhoneNumber.replace(/[\s\-\(\)]/g, ''))) {
+  // Validate phone number format (basic validation - accept numbers starting with 0 or +)
+  const cleanedPhone = recipientPhoneNumber.replace(/[\s\-\(\)]/g, '')
+  const phoneRegex = /^\+?\d{8,15}$/ // Accept 8-15 digits, optional + prefix
+  if (!phoneRegex.test(cleanedPhone)) {
     return { success: false, error: 'Invalid phone number format' }
   }
 
