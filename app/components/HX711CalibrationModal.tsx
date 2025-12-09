@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react"
 import { Scale, Loader2, AlertCircle } from "lucide-react"
 import iotService from "../services/iotService"
 import { createKioskNotification } from "../services/notificationService"
+import { sendCalibrationSuccessSMS, sendCalibrationFailureSMS } from "../services/smsService"
 
 interface HX711CalibrationModalProps {
   isOpen: boolean
@@ -30,6 +31,7 @@ export default function HX711CalibrationModal({
   const [lastProgressMsg, setLastProgressMsg] = useState<string>("")
   const [receivedDoneMsg, setReceivedDoneMsg] = useState<boolean>(false)
   const [showLogModal, setShowLogModal] = useState(false)
+  const [verifiedWeight, setVerifiedWeight] = useState<number | null>(null)
 
   const pushLog = (text: string, type: 'info' | 'warning' | 'done' = 'info') => {
     setProgressLog(prev => [...prev, { text, type }].slice(-12))
@@ -46,6 +48,7 @@ export default function HX711CalibrationModal({
       setReceivedDoneMsg(false)
       setProgressLog([])
       setShowLogModal(false)
+      setVerifiedWeight(null)
       return
     }
 
@@ -147,6 +150,11 @@ export default function HX711CalibrationModal({
             pushLog(doneMsg, 'done')
             setReceivedDoneMsg(true)
 
+            // Store verified weight for SMS notification
+            if (obj.verified_weight !== undefined) {
+              setVerifiedWeight(obj.verified_weight)
+            }
+
             // If detailed fields exist, append a summary line
             const offset = obj.offset !== undefined ? `offset=${obj.offset}` : null
             const scale = obj.scale !== undefined ? `scale=${obj.scale}` : null
@@ -196,6 +204,17 @@ export default function HX711CalibrationModal({
               `HX711 calibrated with ${weight}g`,
               'settings_change'
             ).catch(() => {})
+            // Send SMS notification
+            sendCalibrationSuccessSMS(
+              'HX711',
+              accountId,
+              `Calibrated with ${weight}g${verifiedWeight ? `, verified: ${verifiedWeight}g` : ''}`
+            ).catch((error) => {
+              // Silently fail - SMS is optional
+              if (process.env.NODE_ENV !== 'production') {
+                console.warn('SMS notification failed:', error)
+              }
+            })
           }
           onCalibrationComplete(true, `HX711 calibrated with ${weight}g`)
           onClose()
@@ -211,6 +230,17 @@ export default function HX711CalibrationModal({
             `HX711 calibration failed: ${result.error || "Unknown error"}`,
             'settings_change'
           ).catch(() => {})
+          // Send SMS notification
+          sendCalibrationFailureSMS(
+            'HX711',
+            accountId,
+            result.error || "Unknown error"
+          ).catch((error) => {
+            // Silently fail - SMS is optional
+            if (process.env.NODE_ENV !== 'production') {
+              console.warn('SMS notification failed:', error)
+            }
+          })
         }
         onCalibrationComplete(false, result.error || "Calibration failed")
         setShowLogModal(false)
@@ -225,6 +255,17 @@ export default function HX711CalibrationModal({
           "HX711 calibration failed: Communication error",
           'settings_change'
         ).catch(() => {})
+        // Send SMS notification
+        sendCalibrationFailureSMS(
+          'HX711',
+          accountId,
+          "Communication error"
+        ).catch((error) => {
+          // Silently fail - SMS is optional
+          if (process.env.NODE_ENV !== 'production') {
+            console.warn('SMS notification failed:', error)
+          }
+        })
       }
       onCalibrationComplete(false, "Communication error")
       setShowLogModal(false)

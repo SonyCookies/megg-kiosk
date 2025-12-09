@@ -46,6 +46,9 @@ export default function AccountTab({
                         <p className="text-slate-400 text-sm">
                           {userData.email || 'No email'}
                         </p>
+                        <p className="text-slate-400 text-sm">
+                          {userData.phone || 'No phone number'}
+                        </p>
                         <p className="text-slate-500 text-xs">
                           {userData.provider === 'google' ? 'Google Account' : 'Email Account'}
                         </p>

@@ -33,6 +33,7 @@ import {
   RangeValidation
 } from './utils/configurationService'
 import { createKioskNotification } from './services/notificationService'
+import { sendCalibrationSuccessSMS, sendCalibrationFailureSMS } from './services/smsService'
 
 // Import tab components
 import CameraTab from "./components/CameraTab"
@@ -332,6 +333,17 @@ function HomeInner() {
               `${data.component} calibration completed successfully`,
               'settings_change'
             ).catch(() => {})
+            // Send SMS notification
+            sendCalibrationSuccessSMS(
+              data.component,
+              currentAccountId,
+              data.message || undefined
+            ).catch((error) => {
+              // Silently fail - SMS is optional
+              if (process.env.NODE_ENV !== 'production') {
+                console.warn('SMS notification failed:', error)
+              }
+            })
           }
         } else {
           showToaster('error', data.message || `${data.component} calibration failed`)
@@ -342,6 +354,17 @@ function HomeInner() {
               `${data.component} calibration failed: ${data.message || 'Unknown error'}`,
               'settings_change'
             ).catch(() => {})
+            // Send SMS notification
+            sendCalibrationFailureSMS(
+              data.component,
+              currentAccountId,
+              data.message || 'Unknown error'
+            ).catch((error) => {
+              // Silently fail - SMS is optional
+              if (process.env.NODE_ENV !== 'production') {
+                console.warn('SMS notification failed:', error)
+              }
+            })
           }
         }
         resetCalibrationState(data.component)
@@ -354,6 +377,17 @@ function HomeInner() {
             `${data.component} calibration failed: ${data.error || data.message || 'Unknown error'}`,
             'settings_change'
           ).catch(() => {})
+          // Send SMS notification
+          sendCalibrationFailureSMS(
+            data.component,
+            currentAccountId,
+            data.error || data.message || 'Unknown error'
+          ).catch((error) => {
+            // Silently fail - SMS is optional
+            if (process.env.NODE_ENV !== 'production') {
+              console.warn('SMS notification failed:', error)
+            }
+          })
         }
         resetCalibrationState(data.component)
       } else if (data.status === 'started') {
