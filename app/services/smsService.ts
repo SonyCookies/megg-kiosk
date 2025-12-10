@@ -1,5 +1,5 @@
-// services/smsService.ts - SMS Service using Phone HTTP Server
-// Sends SMS notifications via a phone HTTP server endpoint
+// services/smsService.ts - SMS Service using TextBee.dev API
+// Sends SMS notifications via TextBee.dev gateway
 
 import userService from './userService'
 
@@ -11,9 +11,10 @@ export interface SMSResult {
 // ============================================
 // SMS CONFIGURATION - EMBEDDED IN CODE
 // ============================================
-// Update this value with your ngrok URL
 const SMS_CONFIG = {
-  phoneServerUrl: 'https://subornative-effectually-vanna.ngrok-free.dev' // Replace with your ngrok URL
+  baseUrl: 'https://api.textbee.dev/api/v1',
+  deviceId: '6938b5bf7394020462c61fa1',
+  apiKey: '7b03c774-2def-4891-9cab-2a94b336c315'
 }
 
 /**
@@ -21,6 +22,16 @@ const SMS_CONFIG = {
  */
 function getSMSConfig() {
   return SMS_CONFIG
+}
+
+/**
+ * Format phone number for TextBee API (ensure + prefix)
+ */
+function formatPhoneNumber(phone: string): string {
+  // Remove all non-digit characters except +
+  const cleaned = phone.replace(/[^\d+]/g, '')
+  // If it doesn't start with +, add it
+  return cleaned.startsWith('+') ? cleaned : `+${cleaned}`
 }
 
 /**
@@ -43,7 +54,7 @@ async function getRecipientPhoneNumber(accountId: string | null): Promise<string
 }
 
 /**
- * Send SMS via phone HTTP server
+ * Send SMS via TextBee.dev API
  * @param message - Message to send
  * @param accountId - Account ID to fetch phone number from users collection
  * @param component - Component name (optional, for logging)
@@ -56,11 +67,10 @@ export async function sendSMS(
 ): Promise<SMSResult> {
   const config = getSMSConfig()
 
-  // SMS is always enabled - no need to check enabled flag
   // Validate configuration
-  if (!config.phoneServerUrl) {
+  if (!config.baseUrl || !config.deviceId || !config.apiKey) {
     // Silently fail if not configured - don't show errors
-    return { success: false, error: 'Phone server URL not configured' }
+    return { success: false, error: 'TextBee API not configured' }
   }
 
   // Get phone number from user data
@@ -71,24 +81,27 @@ export async function sendSMS(
     return { success: false, error: 'Recipient phone number not found in user data' }
   }
 
-  // Validate phone number format (basic validation - accept numbers starting with 0 or +)
-  const cleanedPhone = recipientPhoneNumber.replace(/[\s\-\(\)]/g, '')
-  const phoneRegex = /^\+?\d{8,15}$/ // Accept 8-15 digits, optional + prefix
-  if (!phoneRegex.test(cleanedPhone)) {
+  // Format phone number for TextBee API (ensure + prefix)
+  const formattedPhone = formatPhoneNumber(recipientPhoneNumber)
+
+  // Validate phone number format
+  const phoneRegex = /^\+\d{8,15}$/ // Must start with + and have 8-15 digits
+  if (!phoneRegex.test(formattedPhone)) {
     return { success: false, error: 'Invalid phone number format' }
   }
 
   try {
-    const url = `${config.phoneServerUrl}/send-sms`
+    const url = `${config.baseUrl}/gateway/devices/${config.deviceId}/send-sms`
     const payload = {
-      phone: recipientPhoneNumber,
+      recipients: [formattedPhone],
       message: message
     }
 
     const response = await fetch(url, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'x-api-key': config.apiKey
       },
       body: JSON.stringify(payload),
       // Add timeout to prevent hanging
@@ -99,13 +112,15 @@ export async function sendSMS(
       const errorText = await response.text()
       return {
         success: false,
-        error: `Phone server error: ${response.status} - ${errorText}`
+        error: `TextBee API error: ${response.status} - ${errorText}`
       }
     }
 
     const result = await response.json()
 
-    if (result.success) {
+    // TextBee API may return different response format, check for success
+    // If the request was successful (status 200), consider it a success
+    if (response.status === 200) {
       if (process.env.NODE_ENV !== 'production') {
         console.log(`✅ SMS sent${component ? ` for ${component}` : ''}:`, message.substring(0, 50))
       }
@@ -113,17 +128,17 @@ export async function sendSMS(
     } else {
       return {
         success: false,
-        error: result.error || 'Unknown error from phone server'
+        error: result.error || result.message || 'Unknown error from TextBee API'
       }
     }
   } catch (error) {
     // Handle network errors gracefully
     if (error instanceof Error) {
       if (error.name === 'AbortError') {
-        return { success: false, error: 'Request timeout - phone server not responding' }
+        return { success: false, error: 'Request timeout - TextBee API not responding' }
       }
       if (error.message.includes('Failed to fetch')) {
-        return { success: false, error: 'Cannot reach phone server - check URL and network' }
+        return { success: false, error: 'Cannot reach TextBee API - check URL and network' }
       }
       return { success: false, error: error.message }
     }
@@ -183,7 +198,9 @@ export async function testSMSConnection(accountId: string | null): Promise<SMSRe
 export function getSMSConfigInfo() {
   const config = getSMSConfig()
   return {
-    phoneServerUrl: config.phoneServerUrl
+    baseUrl: config.baseUrl,
+    deviceId: config.deviceId,
+    apiKey: config.apiKey ? '***' + config.apiKey.slice(-4) : undefined // Mask API key for security
   }
 }
 
