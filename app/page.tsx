@@ -72,6 +72,8 @@ function HomeInner() {
   const lastProcessedWeightRef = useRef<number | null>(null)
   const [waitingForQuality, setWaitingForQuality] = useState(false)
   const pendingWeightRef = useRef<number | null>(null)
+  // Track recent SMS sends to prevent duplicates (component -> timestamp)
+  const lastSmsSentRef = useRef<Map<string, number>>(new Map())
   const { captureFrame, isReady: isCameraReady } = useCamera()
 
   // UI state
@@ -323,6 +325,23 @@ function HomeInner() {
       }
       
       // Show user feedback and send notifications
+      // Helper function to prevent duplicate SMS sends
+      const shouldSendSMS = (component: string, type: 'success' | 'failure'): boolean => {
+        const componentKey = `${component.toUpperCase()}_${type}`
+        const now = Date.now()
+        const lastSent = lastSmsSentRef.current.get(componentKey) || 0
+        const timeSinceLastSMS = now - lastSent
+        // Prevent duplicate SMS within 5 seconds
+        if (timeSinceLastSMS < 5000) {
+          if (process.env.NODE_ENV !== 'production') {
+            console.log(`Skipping duplicate SMS for ${componentKey} (sent ${timeSinceLastSMS}ms ago)`)
+          }
+          return false
+        }
+        lastSmsSentRef.current.set(componentKey, now)
+        return true
+      }
+
       if (data.status === 'completed') {
         if (data.success) {
           showToaster('success', data.message || `${data.component} calibration completed successfully`)
@@ -333,17 +352,19 @@ function HomeInner() {
               `${data.component} calibration completed successfully`,
               'settings_change'
             ).catch(() => {})
-            // Send SMS notification
-            sendCalibrationSuccessSMS(
-              data.component,
-              currentAccountId,
-              data.message || undefined
-            ).catch((error) => {
-              // Silently fail - SMS is optional
-              if (process.env.NODE_ENV !== 'production') {
-                console.warn('SMS notification failed:', error)
-              }
-            })
+            // Send SMS notification (with deduplication)
+            if (shouldSendSMS(data.component, 'success')) {
+              sendCalibrationSuccessSMS(
+                data.component,
+                currentAccountId,
+                data.message || undefined
+              ).catch((error) => {
+                // Silently fail - SMS is optional
+                if (process.env.NODE_ENV !== 'production') {
+                  console.warn('SMS notification failed:', error)
+                }
+              })
+            }
           }
         } else {
           showToaster('error', data.message || `${data.component} calibration failed`)
@@ -354,21 +375,23 @@ function HomeInner() {
               `${data.component} calibration failed: ${data.message || 'Unknown error'}`,
               'settings_change'
             ).catch(() => {})
-            // Send SMS notification
-            sendCalibrationFailureSMS(
-              data.component,
-              currentAccountId,
-              data.message || 'Unknown error'
-            ).catch((error) => {
-              // Silently fail - SMS is optional
-              if (process.env.NODE_ENV !== 'production') {
-                console.warn('SMS notification failed:', error)
-              }
-            })
+            // Send SMS notification (with deduplication)
+            if (shouldSendSMS(data.component, 'failure')) {
+              sendCalibrationFailureSMS(
+                data.component,
+                currentAccountId,
+                data.message || 'Unknown error'
+              ).catch((error) => {
+                // Silently fail - SMS is optional
+                if (process.env.NODE_ENV !== 'production') {
+                  console.warn('SMS notification failed:', error)
+                }
+              })
+            }
           }
         }
         resetCalibrationState(data.component)
-      } else if (data.status === 'failed' || !data.success) {
+      } else if (data.status === 'failed') {
         showToaster('error', data.message || `${data.component} calibration failed: ${data.error || 'Unknown error'}`)
         // Send failure notification (HX711 handles its own notification)
         if (currentAccountId && data.component.toUpperCase() !== 'HX711') {
@@ -377,17 +400,19 @@ function HomeInner() {
             `${data.component} calibration failed: ${data.error || data.message || 'Unknown error'}`,
             'settings_change'
           ).catch(() => {})
-          // Send SMS notification
-          sendCalibrationFailureSMS(
-            data.component,
-            currentAccountId,
-            data.error || data.message || 'Unknown error'
-          ).catch((error) => {
-            // Silently fail - SMS is optional
-            if (process.env.NODE_ENV !== 'production') {
-              console.warn('SMS notification failed:', error)
-            }
-          })
+          // Send SMS notification (with deduplication)
+          if (shouldSendSMS(data.component, 'failure')) {
+            sendCalibrationFailureSMS(
+              data.component,
+              currentAccountId,
+              data.error || data.message || 'Unknown error'
+            ).catch((error) => {
+              // Silently fail - SMS is optional
+              if (process.env.NODE_ENV !== 'production') {
+                console.warn('SMS notification failed:', error)
+              }
+            })
+          }
         }
         resetCalibrationState(data.component)
       } else if (data.status === 'started') {
