@@ -25,13 +25,11 @@ function getSMSConfig() {
 }
 
 /**
- * Format phone number for TextBee API (ensure + prefix)
+ * Format phone number for TextBee API (remove + prefix and clean)
  */
 function formatPhoneNumber(phone: string): string {
-  // Remove all non-digit characters except +
-  const cleaned = phone.replace(/[^\d+]/g, '')
-  // If it doesn't start with +, add it
-  return cleaned.startsWith('+') ? cleaned : `+${cleaned}`
+  // Remove all non-digit characters (including +)
+  return phone.replace(/[^\d]/g, '')
 }
 
 /**
@@ -81,11 +79,11 @@ export async function sendSMS(
     return { success: false, error: 'Recipient phone number not found in user data' }
   }
 
-  // Format phone number for TextBee API (ensure + prefix)
+  // Format phone number for TextBee API (remove + prefix and clean)
   const formattedPhone = formatPhoneNumber(recipientPhoneNumber)
 
   // Validate phone number format
-  const phoneRegex = /^\+\d{8,15}$/ // Must start with + and have 8-15 digits
+  const phoneRegex = /^\d{8,15}$/ // Must have 8-15 digits
   if (!phoneRegex.test(formattedPhone)) {
     return { success: false, error: 'Invalid phone number format' }
   }

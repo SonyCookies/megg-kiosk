@@ -4,7 +4,6 @@ import React, { useEffect, useState } from "react"
 import { Scale, Loader2, AlertCircle } from "lucide-react"
 import iotService from "../services/iotService"
 import { createKioskNotification } from "../services/notificationService"
-import { sendCalibrationSuccessSMS, sendCalibrationFailureSMS } from "../services/smsService"
 
 interface HX711CalibrationModalProps {
   isOpen: boolean
@@ -204,17 +203,6 @@ export default function HX711CalibrationModal({
               `HX711 calibrated with ${weight}g`,
               'settings_change'
             ).catch(() => {})
-            // Send SMS notification
-            sendCalibrationSuccessSMS(
-              'HX711',
-              accountId,
-              `Calibrated with ${weight}g${verifiedWeight ? `, verified: ${verifiedWeight}g` : ''}`
-            ).catch((error) => {
-              // Silently fail - SMS is optional
-              if (process.env.NODE_ENV !== 'production') {
-                console.warn('SMS notification failed:', error)
-              }
-            })
           }
           onCalibrationComplete(true, `HX711 calibrated with ${weight}g`)
           onClose()
@@ -230,17 +218,6 @@ export default function HX711CalibrationModal({
             `HX711 calibration failed: ${result.error || "Unknown error"}`,
             'settings_change'
           ).catch(() => {})
-          // Send SMS notification
-          sendCalibrationFailureSMS(
-            'HX711',
-            accountId,
-            result.error || "Unknown error"
-          ).catch((error) => {
-            // Silently fail - SMS is optional
-            if (process.env.NODE_ENV !== 'production') {
-              console.warn('SMS notification failed:', error)
-            }
-          })
         }
         onCalibrationComplete(false, result.error || "Calibration failed")
         setShowLogModal(false)
@@ -255,17 +232,6 @@ export default function HX711CalibrationModal({
           "HX711 calibration failed: Communication error",
           'settings_change'
         ).catch(() => {})
-        // Send SMS notification
-        sendCalibrationFailureSMS(
-          'HX711',
-          accountId,
-          "Communication error"
-        ).catch((error) => {
-          // Silently fail - SMS is optional
-          if (process.env.NODE_ENV !== 'production') {
-            console.warn('SMS notification failed:', error)
-          }
-        })
       }
       onCalibrationComplete(false, "Communication error")
       setShowLogModal(false)
